@@ -1,6 +1,7 @@
 import os
 import glob
 import logging
+from . import URL
 from .api import API
 log = logging.getLogger(__name__)
 
@@ -10,7 +11,7 @@ QUESTIONS = [
     "I mean your funeral... last chance!"
 ]
 
-def wipe(email, password, url):
+def wipe(email, password, url=URL):
     '''Wipe all flows, operations, webhooks, and roles from a Directus instance. Used for debugging.'''
     assert url and email and password, "missing url and credentials"
     for q in QUESTIONS:
@@ -21,7 +22,6 @@ def wipe(email, password, url):
         print("Okay let's destroy everything!")
 
     log.info(f"Importing Directus schema and flows to {url}")
-    log.info(f"Loading from {src_dir}\n")
 
     api = API(url)
     api.login(email, password)

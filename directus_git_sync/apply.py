@@ -1,13 +1,13 @@
 import os
 import glob
 import logging
-from . import EXPORT_DIR
+from . import EXPORT_DIR, URL
 from .util import yaml_load
 from .api import API
 log = logging.getLogger(__name__)
 
 
-def apply(email, password, url, src_dir=EXPORT_DIR, force: 'bool'=False):
+def apply(email, password, url=URL, src_dir=EXPORT_DIR, force: 'bool'=False):
     """Apply Directus schema, flows, websockets, dashboards, and roles to a Directus instance."""
     assert url and email and password, "missing url and credentials"
     log.info(f"Importing Directus schema and flows to {url}")

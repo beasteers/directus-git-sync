@@ -3,6 +3,8 @@ import logging
 log = logging.getLogger(__name__)
 log.setLevel(getattr(logging, os.getenv("LOG_LEVEL") or "INFO"))
 
+URL = os.getenv("DIRECTUS_URL") or "http://localhost:8055"
+
 EXPORT_DIR = 'export'
 REPO = os.getenv("GITSYNC_REPO")
 LINK = os.getenv("GITSYNC_LINK")
