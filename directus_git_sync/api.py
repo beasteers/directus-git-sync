@@ -79,9 +79,9 @@ class API:
         """Update server settings."""
         return self.json('PATCH', '/settings', json=settings, **kw)
 
-    def diff_schema(self, schema):
+    def diff_schema(self, schema, force=False):
         # https://docs.directus.io/reference/system/schema.html#retrieve-schema-difference
-        return self.json('POST', '/schema/diff', json=schema)
+        return self.json('POST', '/schema/diff', params={"force": force}, json=schema)
     
     def apply_schema(self, schema_diff):
         # https://docs.directus.io/reference/system/schema.html#apply-schema-difference
@@ -95,15 +95,26 @@ class API:
         log.debug(f'items {route} {set(items)}')
         log.debug(f'existing {route} {set(existing)}')
 
+        for k in items:
+            for ki in ['user_created']:  # XXX: is this desired? it's needed when copying between instances but we're losing this information
+                items[k].pop(ki, None)
+            for ki in (forbidden_keys or []):
+                    items[k].pop(ki, None)
+
         new = set(items) - set(existing)
         log.debug(f'new {route} {new}')
         if new:
             log.info(f"🌱 Creating {route}: {new}")
             # self.json('POST', route, json=[items[k] for k in new])
+            failed = []
             for k in new:
-                for ki in forbidden_keys or []:
-                    items[k].pop(ki, None)
+                try:
+                    self.json('POST', route, json=items[k])
+                except requests.exceptions.HTTPError:
+                    failed.append(k)
+            for k in failed:
                 self.json('POST', route, json=items[k])
+                    
         
         update = set(items) & set(existing)
         log.debug(f'update {route} {update}')
@@ -118,6 +129,8 @@ class API:
         log.debug(f'delete {route} {delete}')
         if delete:
             log.warning(f"🗑 Deleting {route}: {delete}")
+            if '/roles' in route:  # FIXME: this is janky
+                delete = [k for k in delete if existing[k].get('admin_access') != True]
             self.json('DELETE', route, json=list(delete))
         elif missing:
             log.warning(f"Missing (skipping delete) {route}: {missing}")

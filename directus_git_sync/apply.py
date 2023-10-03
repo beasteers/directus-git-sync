@@ -7,7 +7,7 @@ from .api import API
 log = logging.getLogger(__name__)
 
 
-def apply(email, password, url, src_dir=EXPORT_DIR):
+def apply(email, password, url, src_dir=EXPORT_DIR, force: 'bool'=False):
     """Apply Directus schema, flows, websockets, dashboards, and roles to a Directus instance."""
     assert url and email and password, "missing url and credentials"
     log.info(f"Importing Directus schema and flows to {url}")
@@ -21,7 +21,7 @@ def apply(email, password, url, src_dir=EXPORT_DIR):
     log.info("# ---------------------------------- Schema ---------------------------------- #")
     schema = load_dir(f'{src_dir}/schema.yaml')
     if schema:
-        diff = api.diff_schema(schema)
+        diff = api.diff_schema(schema, force=force)
         if diff:
             api.apply_schema(diff['data'])
     log.info("# ----------------------------------- Flows ---------------------------------- #")

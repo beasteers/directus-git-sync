@@ -9,3 +9,6 @@ dependencies = ["requests", "PyYAML", "starstar"]
 directus-git-sync = "directus_git_sync.cli:main"
 directus-git-sync-apply = "directus_git_sync.cli:apply"
 directus-git-sync-export = "directus_git_sync.cli:export"
+
+[tool.setuptools]
+packages = ["directus_git_sync"]
