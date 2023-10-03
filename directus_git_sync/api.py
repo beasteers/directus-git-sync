@@ -87,9 +87,10 @@ class API:
         # https://docs.directus.io/reference/system/schema.html#apply-schema-difference
         return self.json('POST', '/schema/apply', json=schema_diff)
 
-    def _apply(self, route, items, forbidden_keys=None, allow_delete=True):
-        existing = self.json('GET', route)
-        existing = {d['id']: d for d in existing['data'] if 'id' in d}
+    def _apply(self, route, items, existing=None, forbidden_keys=None, allow_delete=True):
+        if existing is None:
+            existing = self.json('GET', route)['data']
+        existing = {d['id']: d for d in existing if 'id' in d}
         items = {d['id']: d for d in items}
         log.debug(f'items {route} {set(items)}')
         log.debug(f'existing {route} {set(existing)}')

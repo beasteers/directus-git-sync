@@ -6,4 +6,6 @@ authors = [{ name = "Bea Steers", email = "bea.steers@gmail.com" }]
 dependencies = ["requests", "PyYAML", "starstar"]
 
 [project.scripts]
-directus-git-sync = "directus_git_sync:cli"
+directus-git-sync = "directus_git_sync.cli:main"
+directus-git-sync-apply = "directus_git_sync.cli:apply"
+directus-git-sync-export = "directus_git_sync.cli:export"

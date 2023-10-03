@@ -25,14 +25,16 @@ services:
       context: .
     volumes:
       - ~/.ssh/id_rsa:/etc/git-secret/ssh
-      - ./data:/src/export
+      - ./data:/git
       - ./directus_git_sync:/src/directus_git_sync
     environment:
       GITSYNC_REPO: git@github.com:floodnet-nyc/floodnet-directus
       GITSYNC_REF: dep-azure-1
       GITSYNC_PERIOD: "30s"
+      GITSYNC_SSH: "true"
       LOG_LEVEL: DEBUG
       DIRECTUS_URL: http://directus:8055
       DIRECTUS_EMAIL: admin@admin.com
       DIRECTUS_PASSWORD: admin
+      DIRECTUS_OUT_DIR: /git/floodnet-directus
       

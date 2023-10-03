@@ -1,8 +1,6 @@
 import os
 import glob
 import logging
-from .util import yaml_load
-from .apply import load_dir
 from .api import API
 log = logging.getLogger(__name__)
 
@@ -12,7 +10,7 @@ QUESTIONS = [
     "I mean your funeral... last chance!"
 ]
 
-def wipe(email, password, url, src_dir='export'):
+def wipe(email, password, url):
     '''Wipe all flows, operations, webhooks, and roles from a Directus instance. Used for debugging.'''
     assert url and email and password, "missing url and credentials"
     for q in QUESTIONS:
@@ -28,7 +26,8 @@ def wipe(email, password, url, src_dir='export'):
     api = API(url)
     api.login(email, password)
 
-    api.apply_settings({})
+    # log.info("# --------------------------------- Settings --------------------------------- #")
+    # api.apply_settings({})
     # log.info("# ---------------------------------- Schema ---------------------------------- #")
     # diff = api.diff_schema({"collections": []})
     # if diff:
@@ -41,10 +40,10 @@ def wipe(email, password, url, src_dir='export'):
     api.apply_panels([], allow_delete=True)
     log.info("# --------------------------------- Webhooks --------------------------------- #")
     api.apply_webhooks([], allow_delete=True)
-    # log.info("# ----------------------------------- Roles ---------------------------------- #")
+    log.info("# ----------------------------------- Roles ---------------------------------- #")
     api.apply_roles([
-        d for d in load_dir(f'{src_dir}/roles')
-        if d.get('admin_access')
+        d for d in api.export_roles()['data']
+        if d.get('system') is not True and 'id' in d and d.get('admin_access')
     ], allow_delete=True)
     api.apply_permissions([], allow_delete=True)
 

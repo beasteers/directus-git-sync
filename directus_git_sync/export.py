@@ -1,11 +1,12 @@
 import os
 import logging
-from.api import API
+from . import EXPORT_DIR
+from .api import API
 from .util import yaml_dump, str_dump
 log = logging.getLogger(__name__)
 
 
-def export(email, password, url, out_dir='export'):
+def export(email, password, url, out_dir=EXPORT_DIR):
     '''Dump the configuration of a Directus to disk (to be committed to git).'''
     assert url and email and password, "missing url and credentials"
     log.info(f"Exporting Directus schema and flows from {url}")
