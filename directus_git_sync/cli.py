@@ -1,23 +1,15 @@
 import logging
 
 
-
 def main(key=None):
     logging.basicConfig()
-    from . import apply, export, wipe
-    from starstar.argparse import Star
-    d = {
+    from . import apply, export, wipe, data, seed
+    import fire
+    fire.Fire({
         "apply": apply,
         "export": export,
         "wipe": wipe,
+        "data": data,
+        "seed": seed,
         # "api": API,
-    }
-    Star(d[key] if key else d, description="""
-Managing Directus as a git repository!
-    """, env_format="DIRECTUS")
-
-def apply():
-    main("apply")
-
-def export():
-    main("export")
+    })
