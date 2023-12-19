@@ -11,7 +11,8 @@ shh/
 shhh/
 shhhh/
 
-/data
+# /data/
+data/
 
 # C extensions
 *.so
