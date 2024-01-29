@@ -7,7 +7,10 @@ from .api import API
 log = logging.getLogger(__name__)
 
 
-def data(*collections, email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.join(EXPORT_DIR, 'data'), only=None, force: 'bool'=False):
+DROP_FIELDS = ['user_created', 'user_updated']
+
+
+def data(*collections, email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.join(EXPORT_DIR, 'data'), drop_fields=DROP_FIELDS, only=None, force: 'bool'=False):
     """Apply Directus schema, flows, websockets, dashboards, and roles to a Directus instance."""
     import tqdm
 
@@ -19,7 +22,7 @@ def data(*collections, email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.
     api.login(email, password)
 
     if not collections:
-        collections = [d['collection'] for d in api.get_collections()['data']]
+        collections = [d['collection'] for d in api.get_collections()['data'] if d.get('meta')]
         collections = [c for c in collections if not c.startswith('directus_')]
 
     os.makedirs(out_dir, exist_ok=True)
@@ -32,7 +35,9 @@ def data(*collections, email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.
         fname = os.path.join(out_dir, f'{c}.json')
         
         log.info(f"{c}: writing {nrows} rows to {fname}")
-        items = (d for xs in api.iter_items(c) for d in xs)
+        items = (
+            {k: v for k, v in d.items() if k not in drop_fields} 
+            for xs in api.iter_items(c) for d in xs)
         items = list(tqdm.tqdm(items, total=nrows))
         write_data(items, fname)
 

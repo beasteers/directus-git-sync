@@ -16,31 +16,23 @@ def wipe(email, password, url=URL):
     assert url and email and password, "missing url and credentials"
     for q in QUESTIONS:
         if input(f'{q} y/[n]: ').strip().lower() != 'y':
-            print("Okie! probably for the best.")
+            log.info("Okie! probably for the best.")
             return
     else:
-        print("Okay let's destroy everything!")
+        log.warning("Okay let's destroy everything!")
 
     log.info(f"Importing Directus schema and flows to {url}")
 
     api = API(url)
     api.login(email, password)
 
-    # log.info("# --------------------------------- Settings --------------------------------- #")
-    # api.apply_settings({})
-    # log.info("# ---------------------------------- Schema ---------------------------------- #")
-    # diff = api.diff_schema({"collections": []})
-    # if diff:
-    #     api.apply_schema(diff['data'])
-    log.info("# ----------------------------------- Flows ---------------------------------- #")
+    api.apply_settings({})
+    api.diff_apply_schema({"collections": []})
     api.apply_flows([], allow_delete=True)
     api.apply_operations([], allow_delete=True)
-    log.info("# -------------------------------- Dashboards -------------------------------- #")
     api.apply_dashboards([], allow_delete=True)
     api.apply_panels([], allow_delete=True)
-    log.info("# --------------------------------- Webhooks --------------------------------- #")
     api.apply_webhooks([], allow_delete=True)
-    log.info("# ----------------------------------- Roles ---------------------------------- #")
     api.apply_roles([
         d for d in api.export_roles()['data']
         if d.get('system') is not True and 'id' in d and d.get('admin_access')

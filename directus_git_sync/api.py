@@ -3,8 +3,9 @@ import json
 import requests
 import logging
 from . import URL, EMAIL, PASSWORD
+from .util import dict_diff, status_text
 from .topo_sort import create_graph_from_items, min_topological_sort
-log = logging.getLogger(__name__)
+log = logging.getLogger(__name__.split('.')[0])
 # log.setLevel(logging.DEBUG)
 
 def localhost_subdomain_hotfix(url):  # FIXME: port
@@ -36,7 +37,10 @@ class API:
         log.debug(f'{"🟢" if r.ok else "🔴"} ↓{method} {path} {r.status_code} {r.content}')
         try:
             r.raise_for_status()
-            return r.content if raw else r.json() if r.content else None
+            if raw:
+                return r.content
+            elif r.content:
+                return r.json()
         except requests.exceptions.HTTPError as e:
             log.error('%s: %s', r.status_code, r.content.decode())
             raise
@@ -47,31 +51,51 @@ class API:
 
     def export_settings(self):
         """Get settings."""
-        return self.json('GET', '/settings')
+        return self.json('GET', '/settings')['data']
     
     def apply_settings(self, settings, **kw):
         """Update server settings."""
+        current = self.export_settings()
+        if settings == current:
+            log.info("%-11s :: %s.", 'Settings', status_text('unchanged'))
+            return
+        log.info("%-11s :: %s.", 'Settings', status_text('modified'))
         return self.json('PATCH', '/settings', json=settings, **kw)
 
     # ---------------------------------- Schema ---------------------------------- #
 
     def export_schema(self):
         """Get schema object."""
-        return self.json('GET', '/schema/snapshot')
+        return self.json('GET', '/schema/snapshot')['data']
 
     def diff_schema(self, schema, force=False):
         # https://docs.directus.io/reference/system/schema.html#retrieve-schema-difference
-        return self.json('POST', '/schema/diff', params={"force": force}, json=schema)
+        diff = self.json('POST', '/schema/diff', params={"force": force}, json=schema)
+        return diff['data'] if diff else None
     
     def apply_schema(self, schema_diff):
         # https://docs.directus.io/reference/system/schema.html#apply-schema-difference
-        return self.json('POST', '/schema/apply', json=schema_diff)
+        result = self.json('POST', '/schema/apply', json=schema_diff)
+        log.info("Schema :: \033[93mdiff applied.\033[0m")
+        return result
+    
+    def diff_apply_schema(self, schema, force=False):
+        if schema:
+            diff = self.diff_schema(schema, force=force)
+            if not diff or not any(diff['diff'].values()):
+                log.info("Schema      :: \033[92mup to date!\033[0m")
+                return
+            # for k, vs in diff['diff'].items():
+            #     for v in vs:
+            #         log.info("%s: %s", k, v)
+            #         if input('>?'):from IPython import embed;embed()
+            return self.apply_schema(diff)
 
     # ---------------------------------- Folders --------------------------------- #
 
     def export_folders(self):
         """Get all folders"""
-        return self.json('GET', '/folders')
+        return self.json('GET', '/folders')['data']
 
     def apply_folders(self, items, **kw):
         """Update server with folders configurations."""
@@ -81,11 +105,11 @@ class API:
     
     def export_operations(self):
         """Get all operations"""
-        return self.json('GET', '/operations')
+        return self.json('GET', '/operations')['data']
     
     def export_flows(self):
         """Get all flows"""
-        return self.json('GET', '/flows')
+        return self.json('GET', '/flows')['data']
     
     def apply_operations(self, items, **kw):
         """Update server with operations configurations."""
@@ -100,7 +124,7 @@ class API:
     
     def export_webhooks(self):
         """Get all webhooks"""
-        return self.json('GET', '/webhooks')
+        return self.json('GET', '/webhooks')['data']
     
     def apply_webhooks(self, items, **kw):
         """Update server with webhooks configurations."""
@@ -110,11 +134,11 @@ class API:
     
     def export_panels(self):
         """Get all panels"""
-        return self.json('GET', '/panels')
+        return self.json('GET', '/panels')['data']
     
     def export_dashboards(self):
         """Get all dashboards"""
-        return self.json('GET', '/dashboards')
+        return self.json('GET', '/dashboards')['data']
     
     def apply_panels(self, items, **kw):
         """Update server with panels configurations."""
@@ -128,15 +152,15 @@ class API:
     
     def export_roles(self):
         """Get all roles"""
-        return self.json('GET', '/roles')
+        return self.json('GET', '/roles')['data']
 
     def export_permissions(self):
         """Get all permissions"""
-        return self.json('GET', '/permissions')
+        return self.json('GET', '/permissions')['data']
     
     def export_users(self):
         """Get all users"""
-        return self.json('GET', '/users')
+        return self.json('GET', '/users')['data']
     
     def apply_roles(self, items, **kw):
         """Update server with roles configurations."""
@@ -167,11 +191,12 @@ class API:
         log.debug(f'items {route} {set(items)}')
         log.debug(f'existing {route} {set(existing)}')
 
-        for k in items:
-            for ki in ['user_created']:  # XXX: is this desired? it's needed when copying between instances but we're losing this information
-                items[k].pop(ki, None)
-            for ki in (forbidden_keys or []):
-                    items[k].pop(ki, None)
+        for d in [items, existing]:
+            for k in d:
+                for ki in ['user_created']:  # XXX: is this desired? it's needed when copying between instances but we're losing this information
+                    d[k].pop(ki, None)
+                for ki in (forbidden_keys or []):
+                        d[k].pop(ki, None)
 
         new = set(items) - set(existing)
         log.debug(f'new {route} {new}')
@@ -190,14 +215,28 @@ class API:
                     failed.append(k)
             for k in failed:
                 self.json('POST', route, json=items[k])
-                    
-        
-        update = set(items) & set(existing)
+
+        in_common = set(items) & set(existing)
+
+        diffs = {k: dict_diff(existing[k], items[k]) for k in in_common}
+        log.debug(f'diffs {route} {diffs}')
+
+        update = {k for k in in_common if any(diffs[k])}
         log.debug(f'update {route} {update}')
+
+        unchanged = in_common - update
+
         if update:
             log.info(f"🔧 Updating {route}: {update}")
             for k in update:
-                self.json('PATCH', f'{route}/{k}', json=items[k])
+                m1,m2,md = diffs[k]
+                if m1 or m2 or md:
+                    print(k)
+                    print(existing[k])
+                    print(items[k])
+                    print(m1,m2,md)
+                    if input('>?'):from IPython import embed;embed()
+                    self.json('PATCH', f'{route}/{k}', json=items[k])
         
         missing = set(existing) - set(items)
         delete = missing if allow_delete else set()
@@ -210,12 +249,21 @@ class API:
             self.json('DELETE', route, json=list(delete))
         elif missing:
             log.warning(f"Missing (skipping delete) {route}: {missing}")
-        return new, update, delete
+
+        log.info(
+            "%-11s :: %s. %s. %s. %s.", 
+            route.strip('/').replace('/', '|').title(),
+            status_text('new', i=len(new)), 
+            status_text('modified', i=len(update)), 
+            status_text('deleted', i=len(delete)),
+            status_text('unchanged', i=len(unchanged)),
+        )
+        return new, update, delete, unchanged
     
     # -------------------------------- Collections ------------------------------- #
 
     def get_collections(self):
-        return self.json('GET', '/collections')
+        return self.json('GET', '/collections')['data']
 
     # ---------------------------------------------------------------------------- #
     #                             Data synchronization                             #

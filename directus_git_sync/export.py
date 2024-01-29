@@ -2,7 +2,7 @@ import os
 import logging
 from . import EXPORT_DIR, URL, EMAIL, PASSWORD
 from .api import API
-from .util import yaml_dump, str_dump
+from .util import export_dir, export_one
 log = logging.getLogger(__name__)
 
 
@@ -14,32 +14,18 @@ def export(email=EMAIL, password=PASSWORD, url=URL, out_dir=EXPORT_DIR):
 
     api = API(url)
     api.login(email, password)
-    log.info("# ----------------------------------- Flows ---------------------------------- #")
-    yaml_dump(api.export_settings()['data'], out_dir, 'settings')
-    log.info("# ---------------------------------- Schema ---------------------------------- #")
-    yaml_dump(api.export_schema()['data'], out_dir, 'schema')
-    log.info("# ----------------------------------- Flows ---------------------------------- #")
-    dump_each(api.export_flows()['data'], out_dir, 'flows')
-    dump_each(api.export_operations()['data'], out_dir, 'operations')
-    log.info("# -------------------------------- Dashboards -------------------------------- #")
-    dump_each(api.export_dashboards()['data'], out_dir, 'dashboards')
-    dump_each(api.export_panels()['data'], out_dir, 'panels')
-    log.info("# --------------------------------- Webhooks --------------------------------- #")
-    dump_each(api.export_webhooks()['data'], out_dir, 'webhooks')
-    log.info("# ----------------------------------- Roles ---------------------------------- #")
-    dump_each(api.export_roles()['data'], out_dir, 'roles')
-    dump_each([
-        d for d in api.export_permissions()['data']
+    export_one(api.export_settings(), out_dir, 'settings')
+    export_one(api.export_schema(), out_dir, 'schema')
+    export_dir(api.export_flows(), out_dir, 'flows')
+    export_dir(api.export_operations(), out_dir, 'operations')
+    export_dir(api.export_dashboards(), out_dir, 'dashboards')
+    export_dir(api.export_panels(), out_dir, 'panels')
+    export_dir(api.export_webhooks(), out_dir, 'webhooks')
+    export_dir(api.export_roles(), out_dir, 'roles')
+    export_dir([
+        d for d in api.export_permissions()
         if d.get('system') is not True and 'id' in d
     ], out_dir, 'permissions', keys=['role', 'action', 'collection', 'id'])
-
-    # # not used for migration - purely for git diff niceness
-    # log.info("# -------------------------------- GraphQL SDL ------------------------------- #")
-    # str_dump(api.export_graphql_sdl().decode(), out_dir, 'schema.graphql')
-
-def dump_each(data, out_dir, name, keys=['name', 'id']):
-    for i, d in enumerate(data):
-        yaml_dump(d, f'{out_dir}/{name}', '-'.join(f'{d.get(k)}' for k in keys) if keys else f'{i}')
 
 
 if __name__ == '__main__':
