@@ -90,23 +90,17 @@ def seed(email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.join(EXPORT_DI
     # graph_data contains key -> data row
     graph, graph_data = get_collection_graph(data, collection_topo)
     keys = min_topological_sort(graph, flat=False)
-    # print(len(keys))
-    # print([len(x) for x in keys])
-    # from IPython import embed
-    # if input('>?'):embed()
 
     for group in keys:
         for gkey in group:
             collection, key = gkey
             if not key or gkey not in graph_data:
-                print("Skipping", gkey)
+                log.info("Skipping %s", gkey)
                 continue
             try:
-                print('creating', gkey, api.create_items(collection, graph_data[gkey]))
+                log.info('creating %s: %s', gkey, api.create_items(collection, graph_data[gkey]))
             except requests.exceptions.HTTPError as e:
-                print("updated", gkey, api.update_item(collection, key, graph_data[gkey]))
-                
-        # input()
+                log.info('updated %s: %s', gkey, api.update_item(collection, key, graph_data[gkey]))
 
 
 if __name__ == '__main__':
