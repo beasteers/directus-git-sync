@@ -16,7 +16,8 @@ def apply(email=EMAIL, password=PASSWORD, url=URL, src_dir=EXPORT_DIR, only=None
     api = API(url)
     api.login(email, password)
 
-    api.apply_settings(load_dir(f'{src_dir}/settings.yaml'))
+    # if not only or 'settings' in only:
+    #     api.apply_settings(load_dir(f'{src_dir}/settings.yaml'))
     if not only or 'schema' in only:
         api.diff_apply_schema(load_dir(f'{src_dir}/schema.yaml'), force=force)
     if not only or 'flows' in only:
