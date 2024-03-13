@@ -66,10 +66,13 @@ class API:
 
     def export_schema(self):
         """Get schema object."""
-        return self.json('GET', '/schema/snapshot')['data']
+        schema = self.json('GET', '/schema/snapshot')['data']
+        schema = sanitize_schema_null_collections(schema)
+        return schema
 
     def diff_schema(self, schema, force=False):
         # https://docs.directus.io/reference/system/schema.html#retrieve-schema-difference
+        schema = sanitize_schema_null_collections(schema)
         diff = self.json('POST', '/schema/diff', params={"force": force}, json=schema)
         return diff['data'] if diff else None
     
@@ -82,6 +85,7 @@ class API:
     def diff_apply_schema(self, schema, force=False):
         if schema:
             diff = self.diff_schema(schema, force=force)
+            # print(diff)
             if not diff or not any(diff['diff'].values()):
                 log.info("Schema      :: \033[92mup to date!\033[0m")
                 return
@@ -198,6 +202,7 @@ class API:
                 for ki in (forbidden_keys or []):
                         d[k].pop(ki, None)
 
+        # check for new
         new = set(items) - set(existing)
         log.debug(f'new {route} {new}')
         if new:
@@ -216,28 +221,20 @@ class API:
             for k in failed:
                 self.json('POST', route, json=items[k])
 
+        # check for changes
         in_common = set(items) & set(existing)
-
         diffs = {k: dict_diff(existing[k], items[k]) for k in in_common}
-        log.debug(f'diffs {route} {diffs}')
-
         update = {k for k in in_common if any(diffs[k])}
-        log.debug(f'update {route} {update}')
-
         unchanged = in_common - update
+        log.debug(f'diffs {route} {diffs}')
+        log.debug(f'update {route} {update}')
 
         if update:
             log.info(f"🔧 Updating {route}: {update}")
             for k in update:
-                m1,m2,md = diffs[k]
-                if m1 or m2 or md:
-                    print(k)
-                    print(existing[k])
-                    print(items[k])
-                    print(m1,m2,md)
-                    if input('>?'):from IPython import embed;embed()
-                    self.json('PATCH', f'{route}/{k}', json=items[k])
+                self.json('PATCH', f'{route}/{k}', json=items[k])
         
+        # check for deletions
         missing = set(existing) - set(items)
         delete = missing if allow_delete else set()
         log.debug(f'missing {route} {missing}')
@@ -250,6 +247,7 @@ class API:
         elif missing:
             log.warning(f"Missing (skipping delete) {route}: {missing}")
 
+        # summary
         log.info(
             "%-11s :: %s. %s. %s. %s.", 
             route.strip('/').replace('/', '|').title(),
@@ -388,6 +386,18 @@ class API:
                         print({"event": "onmessage", "data": data})
             except Exception as e:
                 log.exception(e)
+
+
+def sanitize_schema_null_collections(schema):
+    # for c in schema['collections']:
+    #     if c.get('meta', {}) is None:
+    #         print('drop collection:', c)
+    # for c in schema['relations']:
+    #     if c.get('meta', {}) is None:
+    #         print('drop relation:', c)
+    schema['collections'] = [c for c in schema['collections'] if c.get('meta', {}) is not None]
+    schema['relations'] = [c for c in schema['relations'] if c.get('meta', {}) is not None]
+    return schema
 
 # if __name__ == "__main__":
 #     asyncio.get_event_loop().run_until_complete(main())
