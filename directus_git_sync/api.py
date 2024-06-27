@@ -389,12 +389,14 @@ class API:
 
 
 def sanitize_schema_null_collections(schema):
-    # for c in schema['collections']:
-    #     if c.get('meta', {}) is None:
-    #         print('drop collection:', c)
-    # for c in schema['relations']:
-    #     if c.get('meta', {}) is None:
-    #         print('drop relation:', c)
+    for c in schema['collections']:
+        # if c.get('collection') is not None:
+        #     print(c)
+        if c.get('meta', {}) is None:
+            print('drop collection:', c)
+    for c in schema['relations']:
+        if c.get('meta', {}) is None:
+            print('drop relation:', c)
     schema['collections'] = [c for c in schema['collections'] if c.get('meta', {}) is not None]
     schema['relations'] = [c for c in schema['relations'] if c.get('meta', {}) is not None]
     return schema
