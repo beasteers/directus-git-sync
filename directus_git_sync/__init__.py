@@ -17,10 +17,11 @@ if not EXPORT_DIR and ROOT and LINK:
     EXPORT_DIR = os.path.join(ROOT or '/git', LINK)
 EXPORT_DIR = EXPORT_DIR or 'directus'
 
-from .api import API
 from . import util
-from .export import export
-from .apply import apply
-from .wipe import wipe
-from .data import data
-from .seed import seed
+from .api import API
+from .commands import diff, apply, export, wipe, data, seed
+# from .export import export
+# from .apply import apply, diff
+# from .wipe import wipe
+# from .data import data
+# from .seed import seed
