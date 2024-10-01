@@ -193,6 +193,123 @@ def dict_diff(d1, d2):
 
 
 
+def pretty_print_schema_diff(diff_data, confirm_delete=False):
+    collections = diff_data.get('diff', {}).get('collections', [])
+    relations = diff_data.get('diff', {}).get('relations', [])
+    fields = diff_data.get('diff', {}).get('fields', [])
+
+    def separate_edits(diffs):
+        new_diffs = [{**f, "diff": d} for f in diffs for d in f.get('diff', []) if d.get('kind') == 'N']
+        del_diffs = [{**f, "diff": d} for f in diffs for d in f.get('diff', []) if d.get('kind') == 'D']
+        other_diffs = [{**f, "diff": [d for d in f.get('diff', []) if d.get('kind') not in ['N', 'D']]} for f in diffs]
+        other_diffs = [f for f in other_diffs if f['diff']]
+        return new_diffs, del_diffs, other_diffs
+
+    def print_collection(collection_diff):
+        for change in collection_diff.get('diff', []):
+            kind = change.get('kind')
+            print(" "*2, status_text('modified', f"{kind}:"), change)
+
+    def print_field(field_diff):
+        field_name = field_diff.get('field')
+        diff = [d for d in field_diff.get('diff', []) if d.get('path') != ['meta', 'sort']]
+        if diff:
+            print(" "*5, color_text(C.BLUE, f"{field_name}:"))
+        for change in diff:
+            kind = change.get('kind')
+            path = '.'.join(map(str, change.get('path', [])))
+            if kind == "E":
+                print(" "*6, status_text('modified', f"Edit: {path}:"), f"{change['lhs']} -> {change['rhs']}")
+            elif kind == "A":
+                print(" "*6, status_text('modified', f"Append: {path}:"), f"{change['index']}: {change['item']['rhs']}")
+
+    def print_relation(relation_diff):
+        collection_name = relation_diff.get('collection')
+        field_name = relation_diff.get('field')
+        related_collection = relation_diff.get('related_collection')
+        for change in relation_diff.get('diff', []):
+            kind = change.get('kind')
+            path = '.'.join(map(str, change.get('path', [])))
+            if kind == "D":
+                print(" "*6, status_text('deleted', f"Deleted: {path}:"), f"{collection_name} -> {related_collection}:")
+                continue
+
+            print(" "*5, color_text(C.BLUE, collection_name), '->', color_text(C.BLUE, related_collection))
+            if kind == "E":
+                print(" "*6, status_text('modified', f"Edit: {path}:"), f"{path}: {change['lhs']} -> {change['rhs']}")
+            else:
+                print(" "*6, status_text('modified', f"{kind}:"), change)
+
+    print(bold(":: DIFF ::"))
+    print()
+
+    if not collections and not relations and not fields:
+        print("No schema changes detected.")
+        return
+
+    changed_collections = [c['collection'] for c in collections]
+    other_collections = sorted({f['collection'] for f in fields + relations if f.get('collection') not in changed_collections})
+
+    has_delete = False
+    has_changes = False
+
+    new_diffs, del_diffs, other_diffs = separate_edits(collections)
+    ignored_diffs = [f for f in del_diffs if not f['diff'].get('lhs', {}).get('meta')]
+    deleted_diffs = [f for f in del_diffs if f['diff'].get('lhs', {}).get('meta')]
+    has_delete = has_delete or deleted_diffs
+    has_changes = has_changes or new_diffs or deleted_diffs or other_diffs
+    if new_diffs:
+        print(status_text("new", "New Collections:"), ", ".join([f['collection'] for f in new_diffs]))
+    if deleted_diffs:
+        print(status_text("deleted", "Delete Collections:"), ", ".join([f['collection'] for f in deleted_diffs]))
+    if ignored_diffs:
+        print(status_text("none", "Untracked Collections:"), ", ".join([f['collection'] for f in ignored_diffs]))
+    if new_diffs or del_diffs:
+        print()
+
+    for collection in other_diffs + [{'collection': c} for c in other_collections]:
+        c_fields = [f for f in fields if f.get('collection') == collection['collection']]
+        c_relations = [r for r in relations if r.get('collection') == collection['collection']]
+        new_field_diffs, del_field_diffs, other_field_diffs = separate_edits(c_fields)
+        new_diffs, del_diffs, other_diffs = separate_edits(c_relations)
+        has_delete = has_delete or del_field_diffs or del_diffs
+        has_changes = has_changes or new_field_diffs or del_field_diffs or other_field_diffs or new_diffs or del_diffs or other_diffs
+        if not (new_field_diffs or del_field_diffs or other_field_diffs or new_diffs or del_diffs or other_diffs):
+            continue
+
+        print(color_text(C.BLUE, f"{collection['collection']}:"))
+        print_collection(collection)
+
+        if new_field_diffs:
+            print("  ", status_text("new", "New Fields:"), ", ".join([f['field'] for f in new_field_diffs]))
+        if new_diffs:
+            print("  ", status_text("new", "New Relations:"), ", ".join(["{field}(->{related_collection})".format(**f) for f in new_diffs]))
+        if del_field_diffs:
+            print("  ", status_text("deleted", "Delete Fields:"), ", ".join([f['field'] for f in del_field_diffs]))
+        if del_diffs:
+            print("  ", status_text("deleted", "Delete Relations:"), ", ".join(["{field}(->{related_collection})".format(**f) for f in del_diffs]))
+        if new_diffs or del_diffs or new_field_diffs or del_field_diffs:
+            print()
+
+        for field in other_field_diffs:
+            print_field(field)
+        for relation in other_diffs:
+            print_relation(relation)
+        print()
+
+    if not has_changes:
+        print(color_text(C.GREEN, "No schema changes detected."))
+        print()
+
+    print(bold(":: DIFF ::"))
+    print()
+
+    if confirm_delete and has_delete:
+        if input("Confirm? y/N: ").lower() != "y":
+            raise SystemExit("Aborted.")
+    return has_changes
+
+
 class C:
     HEADER = '\033[95m'
     BLUE = '\033[94m'
@@ -211,6 +328,8 @@ ICONS = {'new': '🌱', 'modified': '🔧', 'deleted': '🗑 ', 'unchanged': '�
 def color_text(color, x, i=True):
     return f'{color}{x}{C.END}'
 
+def bold(x, i=True):
+    return color_text(C.BOLD, x, i)
 
 def status_text(status, fmt=None, i=True):
     color = COLORS.get(status, status)

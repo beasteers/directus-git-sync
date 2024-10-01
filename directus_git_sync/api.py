@@ -3,7 +3,7 @@ import json
 import requests
 import logging
 from . import URL, EMAIL, PASSWORD
-from .util import dict_diff, status_text
+from .util import dict_diff, status_text, pretty_print_schema_diff
 from .topo_sort import create_graph_from_items, min_topological_sort
 log = logging.getLogger(__name__.split('.')[0])
 # log.setLevel(logging.DEBUG)
@@ -82,18 +82,21 @@ class API:
         log.info("Schema :: \033[93mdiff applied.\033[0m")
         return result
     
-    def diff_apply_schema(self, schema, force=False):
+    def diff_apply_schema(self, schema, force=False, yes=False):
         if schema:
             diff = self.diff_schema(schema, force=force)
             # print(diff)
-            if not diff or not any(diff['diff'].values()):
+            has_changes = pretty_print_schema_diff(diff or {}, confirm_delete=not yes)
+            if not has_changes:
                 log.info("Schema      :: \033[92mup to date!\033[0m")
                 return
-            # for k, vs in diff['diff'].items():
-            #     for v in vs:
-            #         log.info("%s: %s", k, v)
-            #         if input('>?'):from IPython import embed;embed()
-            return self.apply_schema(diff)
+            
+            try:
+                return self.apply_schema(diff)
+            except requests.exceptions.HTTPError as e:
+                log.error("Schema      :: \033[91merror applying diff.\033[0m")
+                log.error(e.response.content)
+                raise
 
     # ---------------------------------- Folders --------------------------------- #
 
@@ -389,16 +392,17 @@ class API:
 
 
 def sanitize_schema_null_collections(schema):
-    for c in schema['collections']:
-        # if c.get('collection') is not None:
-        #     print(c)
-        if c.get('meta', {}) is None:
-            print('drop collection:', c)
-    for c in schema['relations']:
-        if c.get('meta', {}) is None:
-            print('drop relation:', c)
+    dropped_collections = [c for c in schema['collections'] if c.get('meta', {}) is None]
+    dropped_relations = [c for c in schema['relations'] if c.get('meta', {}) is None]
+    
     schema['collections'] = [c for c in schema['collections'] if c.get('meta', {}) is not None]
     schema['relations'] = [c for c in schema['relations'] if c.get('meta', {}) is not None]
+    
+    if dropped_collections:
+        print('Ignoring collections:', [c['collection'] for c in dropped_collections])
+    if dropped_relations:
+        print('Ignoring relations:', [f'{c["collection"]}.{c.get("field")}' for c in dropped_relations])
+    
     return schema
 
 # if __name__ == "__main__":
