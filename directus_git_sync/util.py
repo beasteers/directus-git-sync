@@ -192,6 +192,17 @@ def dict_diff(d1, d2):
     return missing1, missing2, mismatch
 
 
+def get_key(d, *keys, default=None):
+    try:
+        for k in keys:
+            if isinstance(d, list):
+                d = d[int(k)]
+            d = d[k]
+    except (IndexError, KeyError, TypeError):
+        return default
+    return d
+
+
 
 def pretty_print_schema_diff(diff_data, confirm_delete=False):
     collections = diff_data.get('diff', {}).get('collections', [])
@@ -221,7 +232,14 @@ def pretty_print_schema_diff(diff_data, confirm_delete=False):
             if kind == "E":
                 print(" "*6, status_text('modified', f"Edit: {path}:"), f"{change['lhs']} -> {change['rhs']}")
             elif kind == "A":
-                print(" "*6, status_text('modified', f"Append: {path}:"), f"{change['index']}: {change['item']['rhs']}")
+                if change['item']['kind'] == "D":
+                    print(" "*6, status_text('deleted', f"Delete: {path}:"), f"{change['index']}: {change['item'].get('lhs')}")
+                elif change['item']['kind'] == "N":
+                    print(" "*6, status_text('new', f"Insert: {path}:"), f"{change['index']}: {change['item'].get('rhs')}")
+                else:
+                    print(" "*6, status_text('modified', f"Append: {path}:"), f"{change['index']}: {change['item'].get('lhs')}->{change['item'].get('rhs')}")
+            else:
+                print(" "*6, status_text('modified', f"{kind}:"), change)
 
     def print_relation(relation_diff):
         collection_name = relation_diff.get('collection')
