@@ -3,7 +3,7 @@ import json
 import requests
 import logging
 from . import URL, EMAIL, PASSWORD
-from .util import dict_diff, status_text, pretty_print_schema_diff
+from .util import dict_diff, status_text, pretty_print_schema_diff, get_key
 from .topo_sort import create_graph_from_items, min_topological_sort
 log = logging.getLogger(__name__.split('.')[0])
 # log.setLevel(logging.DEBUG)
@@ -153,7 +153,7 @@ class API:
     
     def apply_dashboards(self, items, **kw):
         """Update server with dashboards configurations."""
-        return self._apply('/dashboards', items, forbidden_keys=['panels'], **kw)
+        return self._apply('/dashboards', items, forbidden_keys=['panels'], desc_keys=['name'], **kw)
 
     # ----------------------------------- Roles ---------------------------------- #
     
@@ -171,11 +171,11 @@ class API:
     
     def apply_roles(self, items, **kw):
         """Update server with roles configurations."""
-        return self._apply('/roles', items, forbidden_keys=['users'], **kw)
+        return self._apply('/roles', items, forbidden_keys=['users'], desc_keys=['name'], **kw)
     
     def apply_permissions(self, items, **kw):
         """Update server with permissions configurations."""
-        return self._apply('/permissions', items, **kw)
+        return self._apply('/permissions', items, desc_keys=['action', 'collection', 'fields'], **kw)
     
     def apply_users(self, items, **kw):
         """Update server with users configurations."""
@@ -190,7 +190,7 @@ class API:
     # ---------------------------------- Import ---------------------------------- #
 
 
-    def _apply(self, route, items, existing=None, forbidden_keys=None, allow_delete=True):
+    def _apply(self, route, items, existing=None, forbidden_keys=None, allow_delete=True, desc_keys=None):
         if existing is None:
             existing = self.json('GET', route)['data']
         existing = {d['id']: d for d in existing if 'id' in d}
@@ -242,23 +242,33 @@ class API:
         delete = missing if allow_delete else set()
         log.debug(f'missing {route} {missing}')
         log.debug(f'delete {route} {delete}')
+        if '/roles' in route:  # FIXME: this is janky
+            delete = [k for k in delete if existing[k].get('admin_access') != True]
         if delete:
             log.warning(f"🗑 Deleting {route}: {delete}")
-            if '/roles' in route:  # FIXME: this is janky
-                delete = [k for k in delete if existing[k].get('admin_access') != True]
             self.json('DELETE', route, json=list(delete))
-        elif missing:
+        elif missing and not allow_delete:
             log.warning(f"Missing (skipping delete) {route}: {missing}")
 
         # summary
+        title = route.strip('/').replace('/', '|').title()
         log.info(
             "%-11s :: %s. %s. %s. %s.", 
-            route.strip('/').replace('/', '|').title(),
+            title,
             status_text('new', i=len(new)), 
             status_text('modified', i=len(update)), 
             status_text('deleted', i=len(delete)),
             status_text('unchanged', i=len(unchanged)),
         )
+        if desc_keys:
+            for k in new:
+                log.info("%-11s :: %s", title, status_text('new', ' . '.join(f"{get_key(items[k], *dk.split('.'))}" for dk in desc_keys)))
+            for k in update:
+                log.info("%-11s :: %s", title, status_text('modified', ' . '.join(f"{get_key(items[k], *dk.split('.'))}" for dk in desc_keys)))
+            for k in delete:
+                log.warning("%-11s :: %s", title, status_text('deleted', ' . '.join(f"{get_key(existing[k], *dk.split('.'))}" for dk in desc_keys)))
+            # for k in unchanged:
+            #     log.warning("%-11s :: %s", title, status_text('unchanged', ' . '.join(f"{get_key(existing[k], *dk.split('.'))}" for dk in desc_keys)))
         return new, update, delete, unchanged
     
     # -------------------------------- Collections ------------------------------- #
