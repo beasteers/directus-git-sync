@@ -20,7 +20,8 @@ def diff(email=EMAIL, password=PASSWORD, url=URL, src_dir=EXPORT_DIR, only=None,
     api = API(url)
     api.login(email, password)
 
-    diff = api.diff_schema(load_dir(f'{src_dir}/schema.yaml'), force=force)
+    diff = api.diff_unpacked_schema(load_dir(f'{src_dir}/schema', as_dict=True), force=force)
+    print('Raw Diff: ', diff)
     pretty_print_schema_diff(diff)
 
     print(":: Done Diffing :) ::")
@@ -38,7 +39,8 @@ def apply(email=EMAIL, password=PASSWORD, url=URL, src_dir=EXPORT_DIR, only=None
     # if not only or 'settings' in only:
     #     api.apply_settings(load_dir(f'{src_dir}/settings.yaml'))
     if not only or 'schema' in only:
-        api.diff_apply_schema(load_dir(f'{src_dir}/schema.yaml'), force=force, yes=yes)
+        # api.diff_apply_schema(load_dir(f'{src_dir}/schema.yaml'), force=force, yes=yes)
+        api.diff_apply_unpacked_schema(load_dir(f'{src_dir}/schema', as_dict=True), force=force, yes=yes)
     if not only or 'flows' in only:
         api.apply_flows(load_dir(f'{src_dir}/flows'))
         api.apply_operations(load_dir(f'{src_dir}/operations'))
@@ -61,7 +63,8 @@ def export(email=EMAIL, password=PASSWORD, url=URL, out_dir=EXPORT_DIR):
     api = API(url)
     api.login(email, password)
     export_one(api.export_settings(), out_dir, 'settings')
-    export_one(api.export_schema(), out_dir, 'schema')
+    # export_one(api.export_schema(), out_dir, 'schema')
+    export_dir(api.export_unpacked_schema(), out_dir, 'schema')
     export_dir(api.export_flows(), out_dir, 'flows')
     export_dir(api.export_operations(), out_dir, 'operations')
     export_dir(api.export_dashboards(), out_dir, 'dashboards')
@@ -206,7 +209,8 @@ def seed(email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.join(EXPORT_DI
             except requests.exceptions.HTTPError as e:
                 log.info('updated %s: %s', gkey, api.update_item(collection, key, graph_data[gkey]))
 
-
+import ipdb
+@ipdb.iex
 def main(key=None):
     logging.basicConfig()
     import fire
