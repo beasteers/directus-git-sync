@@ -3,7 +3,7 @@ import json
 import requests
 import logging
 from . import URL, EMAIL, PASSWORD
-from .util import dict_diff, status_text, pretty_print_schema_diff, get_key
+from .util import dict_diff, status_text, pretty_print_schema_diff, get_key, unpack_schema, pack_schema
 from .topo_sort import create_graph_from_items, min_topological_sort
 log = logging.getLogger(__name__.split('.')[0])
 # log.setLevel(logging.DEBUG)
@@ -69,12 +69,21 @@ class API:
         schema = self.json('GET', '/schema/snapshot')['data']
         schema = sanitize_schema_null_collections(schema)
         return schema
+    
+    def export_unpacked_schema(self):
+        """Get schema object."""
+        schema = unpack_schema(self.export_schema())
+        return schema
 
     def diff_schema(self, schema, force=False):
         # https://docs.directus.io/reference/system/schema.html#retrieve-schema-difference
         schema = sanitize_schema_null_collections(schema)
         diff = self.json('POST', '/schema/diff', params={"force": force}, json=schema)
         return diff['data'] if diff else None
+    
+    def diff_unpacked_schema(self, schema, force=False):
+        schema = pack_schema(schema)
+        return self.diff_schema(schema, force=force)
     
     def apply_schema(self, schema_diff):
         # https://docs.directus.io/reference/system/schema.html#apply-schema-difference
@@ -97,6 +106,10 @@ class API:
                 log.error("Schema      :: \033[91merror applying diff.\033[0m")
                 log.error(e.response.content)
                 raise
+
+    def diff_apply_unpacked_schema(self, schema, force=False, yes=False):
+        schema = pack_schema(schema)
+        return self.diff_apply_schema(schema, force=force, yes=yes)
 
     # ---------------------------------- Folders --------------------------------- #
 
@@ -403,10 +416,11 @@ class API:
 
 def sanitize_schema_null_collections(schema):
     dropped_collections = [c for c in schema['collections'] if c.get('meta', {}) is None]
-    dropped_relations = [c for c in schema['relations'] if c.get('meta', {}) is None]
+    dropped_collection_names = [c['collection'] for c in dropped_collections]
+    dropped_relations = [c for c in schema['relations'] if c['collection'] in dropped_collection_names]
     
     schema['collections'] = [c for c in schema['collections'] if c.get('meta', {}) is not None]
-    schema['relations'] = [c for c in schema['relations'] if c.get('meta', {}) is not None]
+    schema['relations'] = [c for c in schema['relations'] if c['collection'] not in dropped_collection_names]
     
     if dropped_collections:
         print('Ignoring collections:', [c['collection'] for c in dropped_collections])
