@@ -229,13 +229,15 @@ def pretty_print_schema_diff(diff_data, confirm_delete=False):
         diff = collection_diff.get('diff', [])
         sort_change = next((d for d in diff if d.get('path') == ['meta', 'sort']), None)
         group_change = next((d for d in diff if d.get('path') == ['meta', 'group']), None)
+        slhs = sort_change.get('lhs') if sort_change else None
+        srhs = sort_change.get('rhs') if sort_change else None
         sort_str = (
             'sort'
             + '+'*(sort_change['rhs']-sort_change['lhs'])
             + '-'*(sort_change['lhs']-sort_change['rhs'])
             + f" {sort_change['lhs']} -> {sort_change['rhs']}" 
-            if sort_change else '')
-        group_str = 'group: ' + f"{group_change['lhs']}->{group_change['rhs']}" if group_change else ''
+            if slhs and srhs else '')
+        group_str = 'group: ' + f"{group_change.get('lhs')}->{group_change.get('rhs')}" if group_change else ''
         print(color_text(C.BLUE, f"{collection['collection']}:"), group_str, sort_str)
 
         diff = [d for d in diff if d.get('path') not in [['meta', 'sort'], ['meta', 'group']]]
