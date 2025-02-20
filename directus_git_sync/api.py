@@ -79,7 +79,7 @@ class API:
         # https://docs.directus.io/reference/system/schema.html#retrieve-schema-difference
         schema = sanitize_schema_null_collections(schema)
         diff = self.json('POST', '/schema/diff', params={"force": force}, json=schema)
-        return diff['data'] if diff else None
+        return sanitize_diff_null_collections(diff['data']) if diff else None
     
     def diff_unpacked_schema(self, schema, force=False):
         schema = pack_schema(schema)
@@ -110,6 +110,16 @@ class API:
     def diff_apply_unpacked_schema(self, schema, force=False, yes=False):
         schema = pack_schema(schema)
         return self.diff_apply_schema(schema, force=force, yes=yes)
+    
+    # ---------------------------------- Presets --------------------------------- #
+
+    def export_presets(self):
+        """Get all presets"""
+        return self.json('GET', '/presets')['data']
+    
+    def apply_presets(self, items, **kw):
+        """Update server with presets configurations."""
+        return self._apply('/presets', items, **kw)
 
     # ---------------------------------- Folders --------------------------------- #
 
@@ -428,6 +438,20 @@ def sanitize_schema_null_collections(schema):
         print('Ignoring relations:', [f'{c["collection"]}.{c.get("field")}' for c in dropped_relations])
     
     return schema
+
+
+def sanitize_diff_null_collections(diff):
+    collections = diff['diff']['collections']
+    ignored_collections = []
+    for c in collections:
+        for d in c['diff']:
+            if d.get('kind') == 'D' and (d.get('lhs') or {}).get('meta', {}) is None:
+                ignored_collections.append(c['collection'])
+                break
+    diff['diff']['collections'] = [c for c in diff['diff']['collections'] if c['collection'] not in ignored_collections]
+    diff['diff']['relations'] = [c for c in diff['diff']['relations'] if c['collection'] not in ignored_collections]
+    diff['diff']['fields'] = [c for c in diff['diff']['fields'] if c['collection'] not in ignored_collections]
+    return diff
 
 # if __name__ == "__main__":
 #     asyncio.get_event_loop().run_until_complete(main())

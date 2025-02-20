@@ -384,10 +384,10 @@ def _get_sort_groups(cs):
     groups = {k: sorted(v, key=_get_sort_key) for k, v in groups.items()}
     return top, groups
 
-def _get_sort_groups_list(cs):
+def _get_sort_groups_list(cs, key='collection'):
     top, groups = _get_sort_groups(cs)
-    top = [c['collection'] for c in top]
-    groups = {k: [c['collection'] for c in v] for k, v in groups.items()}
+    top = [c[key] for c in top]
+    groups = {k: [c[key] for c in v] for k, v in groups.items()}
     tree = _nest_groups_list(top, groups)
     # top = [
     #     {c['collection']: [c['collection'] for c in groups[c['collection']]]} 
@@ -445,7 +445,7 @@ def unpack_schema(schema):
     relations = schema.get('relations', [])
     fields = schema.get('fields', [])
     # collection_sort = [d['collection'] for d in collections]
-    collection_sort = _get_sort_groups_list(collections)
+    collection_sort = _get_sort_groups_list(collections, 'collection')
 
     # Create file for each collection
     output = {}
@@ -453,10 +453,21 @@ def unpack_schema(schema):
         collection_name = collection['collection']
         meta = (collection.get('meta') or {})
         meta.pop('sort', None)
+        # print([f.get('meta', {}).get('sort') for f in fields if f.get('collection') == collection_name])
+        c_fields = [f for f in fields if f.get('collection') == collection_name]
+        c_relations = [r for r in relations if r.get('collection') == collection_name]
+        field_sort = _get_sort_groups_list(c_fields, 'field')
+        for d in c_fields:
+            m = d.get('meta') or {}
+            m.pop('sort', None)
+            m.pop('group', None)
         output[collection_name] = {
             'collection': collection,
-            'fields': [f for f in fields if f.get('collection') == collection_name],
-            'relations': [r for r in relations if r.get('collection') == collection_name],
+            'field_sort': field_sort,
+            # 'fields': [f for f in fields if f.get('collection') == collection_name],
+            # 'relations': [r for r in relations if r.get('collection') == collection_name],
+            'fields': sorted(c_fields, key=lambda d: d.get('field')),
+            'relations': sorted(c_relations, key=lambda d: d.get('field')),
         }
     # # Create file for other collections
     # for collection_name in (set(f.get('collection') for f in fields) | set(r.get('collection') for r in relations)) - set(output):
@@ -497,7 +508,14 @@ def pack_schema(output):
                 data['collection']['meta']['group'] = c_group.get(collection_name)
         else:
             continue
-        fields.extend(data['fields'])
+        f_sort = data.get('field_sort', [])
+        f_sort, f_group = _get_sort_map(f_sort)
+        for field in data['fields']:
+            if field.get('field') in f_sort and 'meta' in field:
+                field['meta']['sort'] = f_sort.get(field['field'])
+                field['meta']['group'] = f_group.get(field['field'])
+            fields.append(field)
+
         relations.extend(data['relations'])
     return {'collections': collections, 'relations': relations, 'fields': fields, **meta}
 
