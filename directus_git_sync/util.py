@@ -35,6 +35,15 @@ def _export_one(data, out_dir, name, ext='yaml'):
     return state
 
 
+def _export_key(data, keys):
+    ks = [get_key(data, *k.split(".")) for k in keys]
+    k = '-'.join(f'{k}' for k in ks)
+    k = k.replace(os.sep, '--')
+    # k = re.sub(r'[@]', '', k)
+    # k = re.sub(r'[^\w_.-]', '-', k)
+    return k
+
+
 def export_dir(data, out_dir, name=None, keys=['name', 'id'], ext='yaml'):
     counts = {'unchanged': 0, 'modified': 0, 'new': 0, 'deleted': 0}
     if name is None:
@@ -46,7 +55,7 @@ def export_dir(data, out_dir, name=None, keys=['name', 'id'], ext='yaml'):
 
     if not isinstance(data, dict):
         data = {
-            '-'.join(f'{d.get(k)}' for k in keys) if keys else f'{i}': d
+            _export_key(d, keys) if keys else f'{i}': d
             for i, d in enumerate(data)
         }
 
@@ -113,7 +122,7 @@ def get_fname(out_dir, fname, ext):
     return os.path.join(out_dir, f'{clean(fname)}.{ext.lstrip(".")}')
 
 def clean(fname):
-    return re.sub(r'\s*[^-\s_A-Za-z0-9.]+\s*', ' ', fname)
+    return re.sub(r'\s*[^-\s_A-Za-z0-9@.]+\s*', ' ', fname)
 
 
 

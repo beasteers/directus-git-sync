@@ -204,6 +204,111 @@ class API:
         """Update server with users configurations."""
         return self._apply('/users', items, **kw)
     
+    def export_user_mapping(self):
+        """Get user mapping"""
+        users = self.export_users()
+        users = {u['email']: u['id'] for u in users if u.get('email')}
+        return users
+    
+    # -------------------------------- Extensions -------------------------------- #
+
+    def export_extensions(self):
+        """Get all extensions"""
+        data = self.json('GET', '/extensions')['data']
+
+        # for d in data:
+        #     d['meta'] = {'enabled': d['meta']['enabled']}
+
+        bundles = {}
+        for d in data:
+            bundle = d.pop('bundle', None)
+            bundles.setdefault(bundle, []).append(d)
+
+        top = bundles.get(None, [])
+        # for d in top:
+        #     if d['id'] in bundles:
+        #         d['bundle_extensions'] = bundles[d['id']]
+        # for k in set(bundles) - {None} - set(d['id'] for d in top):
+        #     top.append({'id': k, 'bundle_extensions': bundles[k]})
+
+        return top
+    
+    def apply_extensions(self, items, **kw):
+        """Update server with extensions configurations."""
+
+        # data = []
+        # for d in items:
+        #     bundle_id = d.pop('id', None)
+        #     for di in d.pop('bundle_extensions', []):
+        #         di['bundle'] = bundle_id
+        #         data.append(di)
+        #     if d:
+        #         d.setdefault('bundle', None)
+        #         d['id'] = bundle_id
+        #         data.append(d)
+
+        def NEW(k, d):
+            bundle_extensions = d.pop('bundle_extensions', [])
+
+            registry = self.json('GET', f'/extensions/registry/extension/{d["id"]}')['data']
+            version_id = next((v['id'] for v in registry['versions'] if v['version'] == d['schema']['version']), None)
+            if version_id:
+                log.info(f"🌱 Installing extension {d['schema']['name']} {d['schema']['version']}")
+                self.json('POST', '/extensions/registry/install', json={
+                    "extension": d['id'],
+                    "version": version_id,
+                })
+                return self.json('POST', '/extensions', json=d)
+
+        def UPDATE(k, d, existing):
+            # id_map = {e['schema']['name']: e['id'] for e in existing.pop('bundle_extensions', [])}
+
+            bundle_id = d.pop('id', None)
+            bundle_extensions = d.pop('bundle_extensions', [])
+            # for di in bundle_extensions:
+            #     di['bundle'] = bundle_id
+            #     # if di['schema']['name'] in id_map:
+            #         # di['id'] = id_map[di['schema']['name']]
+            #     print("Update", di['schema']['name'])
+            #     self.json('PATCH', f'/extensions/{di["id"]}', json=di)
+
+            if d:
+                d.setdefault('bundle', None)
+                d['id'] = bundle_id
+                return self.json('PATCH', f'/extensions/{d["id"]}', json=d)
+                
+        def DELETE(ks, ds):
+            for k in ks:
+                print(ds[k]['schema']['name'])
+                print(f'/extensions/registry/uninstall/{k}')
+                # self.json('DELETE', f'/extensions/registry/uninstall/{k}')
+                # self.json('DELETE', f'/extensions/{d["id"]}')
+
+        existing = self.export_extensions()
+        for d in sorted(existing, key=lambda d: d['schema']['name']):
+            print(d['schema']['name'])
+        print("----")
+        for d in sorted(items, key=lambda d: d['schema']['name']):
+            print(d['schema']['name'])
+        # id_map = {e['schema']['name']: {d['schema']['name']: d['id'] for d in e.get('bundle_extensions', [])} for e in existing}
+        # for d in items:
+        #     for di in d.get('bundle_extensions', []):
+        #         i = id_map.get(d['schema']['name'], {}).get(di['schema']['name'], None)
+        #         # print(id_map.get(d['schema']['name'], {}))
+        #         # print(d['schema']['name'] in id_map, di['schema']['name'] in id_map.get(d['schema']['name'], {}))
+        #         # print(d['schema']['name'], di['schema']['name'])
+        #         # print(di['id'], i)
+        #         if i is not None:
+        #             di['id'] = i
+
+        return self._apply(
+            '/extensions', items, 
+            existing=existing,
+            NEW=NEW,
+            UPDATE=UPDATE,
+            DELETE=DELETE,
+            **kw)
+
     # ----------------------------------- Misc ----------------------------------- #
 
     def export_graphql_sdl(self):
@@ -213,7 +318,7 @@ class API:
     # ---------------------------------- Import ---------------------------------- #
 
 
-    def _apply(self, route, items, existing=None, forbidden_keys=None, allow_delete=True, desc_keys=None):
+    def _apply(self, route, items, existing=None, forbidden_keys=None, allow_delete=True, desc_keys=None, NEW='POST', UPDATE='PATCH', DELETE='DELETE'):
         if existing is None:
             existing = self.json('GET', route)['data']
         existing = {d['id']: d for d in existing if 'id' in d}
@@ -236,16 +341,24 @@ class API:
             new_graph = create_graph_from_items({k: items[k] for k in new}, "id")
             new = min_topological_sort(new_graph, flat=True)
             assert set(new)==set(new_b4)
-            log.info(f"🌱 Creating {route}: {new}")
-            # self.json('POST', route, json=[items[k] for k in new])
-            failed = []
-            for k in new:
-                try:
-                    self.json('POST', route, json=items[k])
-                except requests.exceptions.HTTPError:
-                    failed.append(k)
-            for k in failed:
-                self.json('POST', route, json=items[k])
+
+            if NEW:
+                new_fn = (lambda k, d: self.json(NEW, route, json=d)) if not callable(NEW) else NEW
+
+                log.info(f"🌱 Creating {route}: {new}")
+                # self.json('POST', route, json=[items[k] for k in new])
+                failed = []
+                for k in new:
+                    try:
+                        new_fn(k, items[k])
+                    except requests.exceptions.HTTPError:
+                        failed.append(k)
+                for k in failed:
+                    new_fn(k, items[k])
+            else:
+                log.info(f"🌱 Unable to automatically create {route}")
+                for k in new:
+                    log.info(f"🌱 ATTENTION: Would create {route}: {k}\n{items[k]}")
 
         # check for changes
         in_common = set(items) & set(existing)
@@ -256,9 +369,16 @@ class API:
         log.debug(f'update {route} {update}')
 
         if update:
-            log.info(f"🔧 Updating {route}: {update}")
-            for k in update:
-                self.json('PATCH', f'{route}/{k}', json=items[k])
+            if UPDATE:
+                update_fn = (lambda k, d: self.json(UPDATE, f'{route}/{k}', json=d)) if not callable(UPDATE) else UPDATE
+                log.info(f"🔧 Updating {route}: {update}")
+                for k in update:
+                    update_fn(k, items[k], existing[k])
+                    # self.json(UPDATE, f'{route}/{k}', json=items[k])
+            else:
+                log.info(f"🔧 Unable to automatically update {route}")
+                for k in update:
+                    log.info(f"🔧 ATTENTION: Would update {route}: {k}\n{diffs[k]}")
         
         # check for deletions
         missing = set(existing) - set(items)
@@ -267,9 +387,10 @@ class API:
         log.debug(f'delete {route} {delete}')
         if '/roles' in route:  # FIXME: this is janky
             delete = [k for k in delete if existing[k].get('admin_access') != True]
-        if delete:
+        if delete and DELETE:
+            delete_fn = (lambda ks, ds: self.json(DELETE, route, json=list(ks))) if not callable(DELETE) else DELETE
             log.warning(f"🗑 Deleting {route}: {delete}")
-            self.json('DELETE', route, json=list(delete))
+            delete_fn(delete, existing)
         elif missing and not allow_delete:
             log.warning(f"Missing (skipping delete) {route}: {missing}")
 
@@ -432,10 +553,10 @@ def sanitize_schema_null_collections(schema):
     schema['collections'] = [c for c in schema['collections'] if c.get('meta', {}) is not None]
     schema['relations'] = [c for c in schema['relations'] if c['collection'] not in dropped_collection_names]
     
-    if dropped_collections:
-        print('Ignoring collections:', [c['collection'] for c in dropped_collections])
-    if dropped_relations:
-        print('Ignoring relations:', [f'{c["collection"]}.{c.get("field")}' for c in dropped_relations])
+    # if dropped_collections:
+    #     print('Ignoring collections:', [c['collection'] for c in dropped_collections])
+    # if dropped_relations:
+    #     print('Ignoring relations:', [f'{c["collection"]}.{c.get("field")}' for c in dropped_relations])
     
     return schema
 

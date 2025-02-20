@@ -49,9 +49,13 @@ def apply(email=EMAIL, password=PASSWORD, url=URL, src_dir=EXPORT_DIR, only=None
         api.apply_panels(load_dir(f'{src_dir}/panels'))
     if not only or 'webhooks' in only:
         api.apply_webhooks(load_dir(f'{src_dir}/webhooks'))
-    if not only or 'roles' in only:
-        api.apply_roles(load_dir(f'{src_dir}/roles'))
-        api.apply_permissions(load_dir(f'{src_dir}/permissions'))
+    # if not only or 'roles' in only:
+    #     api.apply_roles(load_dir(f'{src_dir}/roles'))
+    #     api.apply_permissions(load_dir(f'{src_dir}/permissions'))
+    # if not only or 'presets' in only:
+    #     api.apply_presets(load_dir(f'{src_dir}/presets'))
+    if not only or 'extensions' in only:
+        api.apply_extensions(load_dir(f'{src_dir}/extensions'))
 
 
 def export(email=EMAIL, password=PASSWORD, url=URL, out_dir=EXPORT_DIR):
@@ -63,6 +67,7 @@ def export(email=EMAIL, password=PASSWORD, url=URL, out_dir=EXPORT_DIR):
     api = API(url)
     api.login(email, password)
     export_one(api.export_settings(), out_dir, 'settings')
+    # export_one(api.export_user_mapping(), out_dir, 'users')
     # export_one(api.export_schema(), out_dir, 'schema')
     export_dir(api.export_unpacked_schema(), out_dir, 'schema')
     export_dir(api.export_flows(), out_dir, 'flows')
@@ -70,6 +75,8 @@ def export(email=EMAIL, password=PASSWORD, url=URL, out_dir=EXPORT_DIR):
     export_dir(api.export_dashboards(), out_dir, 'dashboards')
     export_dir(api.export_panels(), out_dir, 'panels')
     export_dir(api.export_webhooks(), out_dir, 'webhooks')
+    export_dir(api.export_presets(), out_dir, 'presets', ['bookmark', 'collection', 'id'])
+    export_dir(api.export_extensions(), out_dir, 'extensions', ['schema.name', 'schema.type'])
     export_dir(api.export_roles(), out_dir, 'roles')
     export_dir([
         d for d in api.export_permissions()
