@@ -216,8 +216,8 @@ def seed(email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.join(EXPORT_DI
             except requests.exceptions.HTTPError as e:
                 log.info('updated %s: %s', gkey, api.update_item(collection, key, graph_data[gkey]))
 
-import ipdb
-@ipdb.iex
+# import ipdb
+# @ipdb.iex
 def main(key=None):
     logging.basicConfig()
     import fire
