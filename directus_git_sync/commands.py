@@ -75,9 +75,9 @@ def export(email=EMAIL, password=PASSWORD, url=URL, out_dir=EXPORT_DIR):
     export_dir(api.export_dashboards(), out_dir, 'dashboards')
     export_dir(api.export_panels(), out_dir, 'panels')
     export_dir(api.export_webhooks(), out_dir, 'webhooks')
-    export_dir(api.export_presets(), out_dir, 'presets', ['bookmark', 'collection', 'id'])
+    # export_dir(api.export_presets(), out_dir, 'presets', ['bookmark', 'collection', 'id'])
     export_dir(api.export_extensions(), out_dir, 'extensions', ['schema.name', 'schema.type'])
-    export_dir(api.export_roles(), out_dir, 'roles')
+    # export_dir(api.export_roles(), out_dir, 'roles')
     export_dir([
         d for d in api.export_permissions()
         if d.get('system') is not True and 'id' in d
@@ -216,8 +216,8 @@ def seed(email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.join(EXPORT_DI
             except requests.exceptions.HTTPError as e:
                 log.info('updated %s: %s', gkey, api.update_item(collection, key, graph_data[gkey]))
 
-# import ipdb
-# @ipdb.iex
+import ipdb
+@ipdb.iex
 def main(key=None):
     logging.basicConfig()
     import fire
