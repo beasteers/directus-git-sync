@@ -251,7 +251,8 @@ class API:
             bundle_extensions = d.pop('bundle_extensions', [])
 
             registry = self.json('GET', f'/extensions/registry/extension/{d["id"]}')['data']
-            version_id = next((v['id'] for v in registry['versions'] if v['version'] == d['schema']['version']), None)
+            version_id = next((v['id'] for v in registry['versions'] if v['version'] == d.get('schema') and d['schema']['version']), None)
+            # version_id = next((v['id'] for v in registry['versions'] if v['version'] == d['id']), None)
             if version_id:
                 log.info(f"🌱 Installing extension {d['schema']['name']} {d['schema']['version']}")
                 self.json('POST', '/extensions/registry/install', json={
@@ -259,6 +260,9 @@ class API:
                     "version": version_id,
                 })
                 return self.json('POST', '/extensions', json=d)
+            else:
+                log.warning(f"🌱 Unable to install extension (no schema.version found): {d}")
+                return None
 
         def UPDATE(k, d, existing):
             # id_map = {e['schema']['name']: e['id'] for e in existing.pop('bundle_extensions', [])}
@@ -279,17 +283,18 @@ class API:
                 
         def DELETE(ks, ds):
             for k in ks:
-                print(ds[k]['schema']['name'])
-                print(f'/extensions/registry/uninstall/{k}')
+                # print(ds[k]['schema']['name'])
+                print(ds[k])
+                print(f'fake uninstall /extensions/registry/uninstall/{k}')
                 # self.json('DELETE', f'/extensions/registry/uninstall/{k}')
                 # self.json('DELETE', f'/extensions/{d["id"]}')
 
         existing = self.export_extensions()
-        for d in sorted(existing, key=lambda d: d['schema']['name']):
-            print(d['schema']['name'])
-        print("----")
-        for d in sorted(items, key=lambda d: d['schema']['name']):
-            print(d['schema']['name'])
+        # for d in sorted(existing, key=lambda d: d['schema']['name']):
+        #     print(d['schema']['name'])
+        # print("----")
+        # for d in sorted(items, key=lambda d: d['schema']['name']):
+        #     print(d['schema']['name'])
         # id_map = {e['schema']['name']: {d['schema']['name']: d['id'] for d in e.get('bundle_extensions', [])} for e in existing}
         # for d in items:
         #     for di in d.get('bundle_extensions', []):
@@ -370,7 +375,7 @@ class API:
 
         if update:
             if UPDATE:
-                update_fn = (lambda k, d: self.json(UPDATE, f'{route}/{k}', json=d)) if not callable(UPDATE) else UPDATE
+                update_fn = (lambda k, d, old=None: self.json(UPDATE, f'{route}/{k}', json=d)) if not callable(UPDATE) else UPDATE
                 log.info(f"🔧 Updating {route}: {update}")
                 for k in update:
                     update_fn(k, items[k], existing[k])
