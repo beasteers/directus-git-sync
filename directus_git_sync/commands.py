@@ -1,3 +1,4 @@
+import json
 import os
 import glob
 import logging
@@ -21,7 +22,7 @@ def diff(email=EMAIL, password=PASSWORD, url=URL, src_dir=EXPORT_DIR, only=None,
     api.login(email, password)
 
     diff = api.diff_unpacked_schema(load_dir(f'{src_dir}/schema', as_dict=True), force=force)
-    print('Raw Diff: ', diff)
+    print('Raw Diff: ', json.dumps(diff, indent=2))
     pretty_print_schema_diff(diff)
 
     print(":: Done Diffing :) ::")
@@ -54,8 +55,8 @@ def apply(email=EMAIL, password=PASSWORD, url=URL, src_dir=EXPORT_DIR, only=None
     #     api.apply_permissions(load_dir(f'{src_dir}/permissions'))
     # if not only or 'presets' in only:
     #     api.apply_presets(load_dir(f'{src_dir}/presets'))
-    if not only or 'extensions' in only:
-        api.apply_extensions(load_dir(f'{src_dir}/extensions'))
+    # if not only or 'extensions' in only:
+    #     api.apply_extensions(load_dir(f'{src_dir}/extensions'))
 
 
 def export(email=EMAIL, password=PASSWORD, url=URL, out_dir=EXPORT_DIR):
@@ -216,8 +217,8 @@ def seed(email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.join(EXPORT_DI
             except requests.exceptions.HTTPError as e:
                 log.info('updated %s: %s', gkey, api.update_item(collection, key, graph_data[gkey]))
 
-# import ipdb
-# @ipdb.iex
+import ipdb
+@ipdb.iex
 def main(key=None):
     logging.basicConfig()
     import fire

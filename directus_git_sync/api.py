@@ -571,7 +571,7 @@ def sanitize_diff_null_collections(diff):
     ignored_collections = []
     for c in collections:
         for d in c['diff']:
-            if d.get('kind') == 'D' and (d.get('lhs') or {}).get('meta', {}) is None:
+            if d.get('kind') == 'D' and not isinstance(d.get('lhs'), int) and (d.get('lhs') or {}).get('meta', {}) is None:
                 ignored_collections.append(c['collection'])
                 break
     diff['diff']['collections'] = [c for c in diff['diff']['collections'] if c['collection'] not in ignored_collections]

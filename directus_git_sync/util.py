@@ -228,9 +228,9 @@ def pretty_print_schema_diff(diff_data, confirm_delete=False):
     fields = diff_data.get('diff', {}).get('fields', [])
 
     def separate_edits(diffs):
-        new_diffs = [{**f, "diff": d} for f in diffs for d in f.get('diff', []) if d.get('kind') == 'N']
-        del_diffs = [{**f, "diff": d} for f in diffs for d in f.get('diff', []) if d.get('kind') == 'D']
-        other_diffs = [{**f, "diff": [d for d in f.get('diff', []) if d.get('kind') not in ['N', 'D']]} for f in diffs]
+        new_diffs = [{**f, "diff": d} for f in diffs for d in f.get('diff', []) if d.get('kind') == 'N' and not d.get('path')]
+        del_diffs = [{**f, "diff": d} for f in diffs for d in f.get('diff', []) if d.get('kind') == 'D' and not d.get('path')]
+        other_diffs = [{**f, "diff": [d for d in f.get('diff', []) if d.get('kind') not in ['N', 'D'] or d.get('path')]} for f in diffs]
         other_diffs = [f for f in other_diffs if f['diff']]
         return new_diffs, del_diffs, other_diffs
 
@@ -266,9 +266,19 @@ def pretty_print_schema_diff(diff_data, confirm_delete=False):
             _print_change(change, 6)
 
     def _print_change(change, indent=0):
+        try:
+            return _print_change_inner(change, indent)
+        except Exception as e:
+            print(" "*indent, status_text('modified', f"Error printing change:"), change)
+            print(" "*indent, status_text('modified', f"{type(e).__name__}: {e}"))
+            return
+
+    def _print_change_inner(change, indent=0):
         kind = change.get('kind')
         path = '.'.join(map(str, change.get('path', [])))
-        if kind == "E":
+        if kind == "N":
+            print(" "*indent, status_text('new', f"Insert: {path}:"), change.get('rhs'))
+        elif kind == "E":
             print(" "*indent, status_text('modified', f"Edit: {path}:"), f"{change['lhs']} -> {change['rhs']}")
         elif kind == "A":
             if change['item']['kind'] == "D":
@@ -313,8 +323,9 @@ def pretty_print_schema_diff(diff_data, confirm_delete=False):
     has_changes = False
 
     new_diffs, del_diffs, other_diffs = separate_edits(collections)
-    ignored_diffs = [f for f in del_diffs if not (f['diff'].get('lhs') or {}).get('meta')]
-    deleted_diffs = [f for f in del_diffs if (f['diff'].get('lhs') or {}).get('meta')]
+    is_ignored = lambda f: not isinstance(f['diff'].get('lhs'), int) and not (f['diff'].get('lhs') or {}).get('meta')
+    ignored_diffs = [f for f in del_diffs if is_ignored(f)]
+    deleted_diffs = [f for f in del_diffs if not is_ignored(f)]
     has_delete = has_delete or deleted_diffs
     has_changes = has_changes or new_diffs or deleted_diffs or other_diffs
     if new_diffs:
@@ -338,6 +349,7 @@ def pretty_print_schema_diff(diff_data, confirm_delete=False):
 
         print_collection(collection)
 
+        # print(new_field_diffs)
         if new_field_diffs:
             print("  ", status_text("new", "New Fields:"), ", ".join([f['field'] for f in new_field_diffs]))
         if new_diffs:
