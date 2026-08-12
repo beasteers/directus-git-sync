@@ -121,6 +121,16 @@ class API:
         """Update server with presets configurations."""
         return self._apply('/presets', items, **kw)
 
+    # --------------------------------- Policies -------------------------------- #
+
+    def export_policies(self):
+        """Get access policies."""
+        return self.json('GET', '/policies')['data']
+
+    def apply_policies(self, items, **kw):
+        """Update access policies without carrying environment user bindings."""
+        return self._apply('/policies', items, forbidden_keys=['users', 'roles'], **kw)
+
     # ---------------------------------- Folders --------------------------------- #
 
     def export_folders(self):
@@ -194,7 +204,7 @@ class API:
     
     def apply_roles(self, items, **kw):
         """Update server with roles configurations."""
-        return self._apply('/roles', items, forbidden_keys=['users'], desc_keys=['name'], **kw)
+        return self._apply('/roles', items, forbidden_keys=['users', 'children'], desc_keys=['name'], **kw)
     
     def apply_permissions(self, items, **kw):
         """Update server with permissions configurations."""
@@ -419,6 +429,28 @@ class API:
             # for k in unchanged:
             #     log.warning("%-11s :: %s", title, status_text('unchanged', ' . '.join(f"{get_key(existing[k], *dk.split('.'))}" for dk in desc_keys)))
         return new, update, delete, unchanged
+
+    def diff_items(self, route, items, existing=None, forbidden_keys=None):
+        """Return a JSON-serializable create/update/delete plan without mutation."""
+        if existing is None:
+            existing = self.json('GET', route)['data']
+        forbidden_keys = set(forbidden_keys or []) | {'user_created', 'user_updated'}
+
+        def normalize(item):
+            return {key: value for key, value in item.items() if key not in forbidden_keys}
+
+        desired = {str(item['id']): normalize(item) for item in items if 'id' in item}
+        current = {str(item['id']): normalize(item) for item in existing if 'id' in item}
+        if len(desired) != len([item for item in items if 'id' in item]):
+            raise ValueError(f'duplicate ids in desired state for {route}')
+        return {
+            'create': sorted(set(desired) - set(current)),
+            'update': sorted(
+                key for key in set(desired) & set(current)
+                if desired[key] != current[key]
+            ),
+            'delete': sorted(set(current) - set(desired)),
+        }
     
     # -------------------------------- Collections ------------------------------- #
 

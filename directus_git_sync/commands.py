@@ -12,51 +12,190 @@ from .api import API
 log = logging.getLogger(__name__)
 
 
-def diff(email=EMAIL, password=PASSWORD, url=URL, src_dir=EXPORT_DIR, only=None, force: 'bool'=False):
-    """Diff Directus schema, flows, websockets, dashboards, and roles to a Directus instance."""
+RESOURCE_CONFIG = {
+    'policies': {'forbidden_keys': ['users', 'roles']},
+    'roles': {'forbidden_keys': ['users', 'children']},
+    'permissions': {},
+    'flows': {'forbidden_keys': ['operations']},
+    'operations': {},
+    'dashboards': {'forbidden_keys': ['panels']},
+    'panels': {},
+    'presets': {},
+    'webhooks': {},
+}
+SETTINGS_IGNORED = {'id', 'project_id'}
+OPTIONAL_RESOURCES = {'panels', 'webhooks'}
+
+
+def _load_configuration(src_dir):
+    required = ['settings.yaml', 'schema'] + [
+        name for name in RESOURCE_CONFIG if name not in OPTIONAL_RESOURCES
+    ] + ['extensions']
+    missing = [name for name in required if not os.path.exists(os.path.join(src_dir, name))]
+    if missing:
+        raise ValueError('incomplete Directus snapshot; missing: ' + ', '.join(missing))
+
+    resources = {
+        name: load_dir(os.path.join(src_dir, name))
+        for name in RESOURCE_CONFIG
+    }
+    policies = {str(item['id']) for item in resources['policies']}
+    referenced = {
+        str(policy)
+        for role in resources['roles']
+        for policy in role.get('policies', [])
+    } | {
+        str(item['policy'])
+        for item in resources['permissions']
+        if item.get('policy')
+    }
+    if referenced - policies:
+        raise ValueError(
+            'snapshot references policies that were not exported: '
+            + ', '.join(sorted(referenced - policies)))
+    if any(role.get('users') for role in resources['roles']):
+        raise ValueError('snapshot contains environment-specific role user bindings')
+    if any(item.get('user') for item in resources['presets']):
+        raise ValueError('snapshot contains user-scoped presets')
+
+    return {
+        'settings': load_data(os.path.join(src_dir, 'settings.yaml')),
+        'schema': load_dir(os.path.join(src_dir, 'schema'), as_dict=True),
+        'resources': resources,
+        'extensions': load_dir(os.path.join(src_dir, 'extensions')),
+    }
+
+
+def _contains_delete(value):
+    if isinstance(value, dict):
+        return value.get('kind') == 'D' or any(_contains_delete(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_delete(item) for item in value)
+    return False
+
+
+def build_plan(api, src_dir=EXPORT_DIR, force=False):
+    """Return a complete, non-mutating application-state plan."""
+    desired = _load_configuration(src_dir)
+    schema = api.diff_unpacked_schema(desired['schema'], force=force)
+    current_settings = api.export_settings()
+    desired_settings = {
+        key: value for key, value in desired['settings'].items()
+        if key not in SETTINGS_IGNORED
+    }
+    settings = {
+        key: {'current': current_settings.get(key), 'desired': value}
+        for key, value in desired_settings.items()
+        if current_settings.get(key) != value
+    }
+    policy_ids = {str(item['id']) for item in desired['resources']['policies']}
+
+    def managed_actual(name):
+        items = api.json('GET', f'/{name}')['data']
+        if name == 'policies':
+            return [item for item in items if not item.get('admin_access')]
+        if name == 'roles':
+            return [
+                item for item in items
+                if set(map(str, item.get('policies', []))).issubset(policy_ids)
+            ]
+        if name == 'permissions':
+            return [
+                item for item in items
+                if not item.get('system') and str(item.get('policy')) in policy_ids
+            ]
+        if name == 'presets':
+            return [item for item in items if not item.get('user')]
+        return items
+
+    resources = {
+        name: api.diff_items(
+            f'/{name}',
+            items,
+            existing=managed_actual(name),
+            forbidden_keys=config.get('forbidden_keys'))
+        for name, config in RESOURCE_CONFIG.items()
+        for items in [desired['resources'][name]]
+    }
+    installed = {
+        item.get('schema', {}).get('name'): item.get('schema', {}).get('version')
+        for item in api.export_extensions()
+    }
+    extensions_missing = sorted(
+        f"{item.get('schema', {}).get('name')}@{item.get('schema', {}).get('version')}"
+        for item in desired['extensions']
+        if installed.get(item.get('schema', {}).get('name'))
+        != item.get('schema', {}).get('version'))
+    destructive = _contains_delete(schema) or any(
+        changes['delete'] for changes in resources.values())
+    has_changes = bool(schema or settings or extensions_missing) or any(
+        any(changes.values()) for changes in resources.values())
+    return {
+        'schema': schema,
+        'settings': settings,
+        'resources': resources,
+        'extensions_missing': extensions_missing,
+        'destructive': bool(destructive),
+        'has_changes': bool(has_changes),
+    }
+
+
+def diff(email=EMAIL, password=PASSWORD, url=URL, src_dir=EXPORT_DIR, force: 'bool'=False, output=None):
+    """Plan all managed Directus configuration without changing the server."""
     assert url and email and password, "missing url and/or credentials"
-    log.info(f"Importing Directus schema and flows to {url}")
+    log.info(f"Planning Directus configuration for {url}")
     log.info(f"Loading from {src_dir}\n")
 
     api = API(url)
     api.login(email, password)
 
-    diff = api.diff_unpacked_schema(load_dir(f'{src_dir}/schema', as_dict=True), force=force)
-    print('Raw Diff: ', json.dumps(diff, indent=2))
-    pretty_print_schema_diff(diff)
+    result = build_plan(api, src_dir, force=force)
+    rendered = json.dumps(result, indent=2, sort_keys=True)
+    if output:
+        with open(output, 'w') as stream:
+            stream.write(rendered + '\n')
+    print(rendered)
+    return result
 
-    print(":: Done Diffing :) ::")
 
-
-def apply(email=EMAIL, password=PASSWORD, url=URL, src_dir=EXPORT_DIR, only=None, force: 'bool'=False, yes=True):
-    """Apply Directus schema, flows, websockets, dashboards, and roles to a Directus instance."""
+def apply(email=EMAIL, password=PASSWORD, url=URL, src_dir=EXPORT_DIR, force: 'bool'=False, yes: 'bool'=False):
+    """Apply all managed Directus configuration after an explicit approval."""
     assert url and email and password, "missing url and/or credentials"
-    log.info(f"Importing Directus schema and flows to {url}")
+    if not yes:
+        raise ValueError('refusing apply without --yes after reviewing directus-git-sync diff')
+    log.info(f"Applying Directus configuration to {url}")
     log.info(f"Loading from {src_dir}\n")
 
     api = API(url)
     api.login(email, password)
 
-    # if not only or 'settings' in only:
-    #     api.apply_settings(load_dir(f'{src_dir}/settings.yaml'))
-    if not only or 'schema' in only:
-        # api.diff_apply_schema(load_dir(f'{src_dir}/schema.yaml'), force=force, yes=yes)
-        api.diff_apply_unpacked_schema(load_dir(f'{src_dir}/schema', as_dict=True), force=force, yes=yes)
-    if not only or 'flows' in only:
-        api.apply_flows(load_dir(f'{src_dir}/flows'))
-        api.apply_operations(load_dir(f'{src_dir}/operations'))
-    if not only or 'dashboards' in only:
-        api.apply_dashboards(load_dir(f'{src_dir}/dashboards'))
-        api.apply_panels(load_dir(f'{src_dir}/panels'))
-    if not only or 'webhooks' in only:
-        api.apply_webhooks(load_dir(f'{src_dir}/webhooks'))
-    # if not only or 'roles' in only:
-    #     api.apply_roles(load_dir(f'{src_dir}/roles'))
-    #     api.apply_permissions(load_dir(f'{src_dir}/permissions'))
-    # if not only or 'presets' in only:
-    #     api.apply_presets(load_dir(f'{src_dir}/presets'))
-    # if not only or 'extensions' in only:
-    #     api.apply_extensions(load_dir(f'{src_dir}/extensions'))
+    desired = _load_configuration(src_dir)
+    before = build_plan(api, src_dir, force=force)
+    if before['extensions_missing']:
+        raise ValueError(
+            'required extension builds are not installed: '
+            + ', '.join(before['extensions_missing']))
+    api.diff_apply_unpacked_schema(desired['schema'], force=force, yes=True)
+    api.apply_settings({
+        key: value for key, value in desired['settings'].items()
+        if key not in SETTINGS_IGNORED
+    })
+
+    # Create and update dependencies first, then delete in reverse dependency
+    # order. This avoids deleting a policy while a permission still refers to it.
+    for name, config in RESOURCE_CONFIG.items():
+        getattr(api, f'apply_{name}')(
+            desired['resources'][name],
+            allow_delete=False)
+    for name, config in reversed(RESOURCE_CONFIG.items()):
+        getattr(api, f'apply_{name}')(
+            desired['resources'][name],
+            allow_delete=True)
+
+    after = build_plan(api, src_dir, force=force)
+    if after['has_changes']:
+        raise RuntimeError('Directus configuration did not converge: ' + json.dumps(after, sort_keys=True))
+    return after
 
 
 def export(email=EMAIL, password=PASSWORD, url=URL, out_dir=EXPORT_DIR):
@@ -67,7 +206,13 @@ def export(email=EMAIL, password=PASSWORD, url=URL, out_dir=EXPORT_DIR):
 
     api = API(url)
     api.login(email, password)
-    export_one(api.export_settings(), out_dir, 'settings')
+    os.makedirs(out_dir, exist_ok=True)
+    for name in list(RESOURCE_CONFIG) + ['schema', 'extensions']:
+        os.makedirs(os.path.join(out_dir, name), exist_ok=True)
+    export_one({
+        key: value for key, value in api.export_settings().items()
+        if key not in SETTINGS_IGNORED
+    }, out_dir, 'settings')
     # export_one(api.export_user_mapping(), out_dir, 'users')
     # export_one(api.export_schema(), out_dir, 'schema')
     export_dir(api.export_unpacked_schema(), out_dir, 'schema')
@@ -76,13 +221,28 @@ def export(email=EMAIL, password=PASSWORD, url=URL, out_dir=EXPORT_DIR):
     export_dir(api.export_dashboards(), out_dir, 'dashboards')
     export_dir(api.export_panels(), out_dir, 'panels')
     export_dir(api.export_webhooks(), out_dir, 'webhooks')
-    # export_dir(api.export_presets(), out_dir, 'presets', ['bookmark', 'collection', 'id'])
+    export_dir([
+        item for item in api.export_presets()
+        if not item.get('user')
+    ], out_dir, 'presets', ['bookmark', 'collection', 'id'])
     export_dir(api.export_extensions(), out_dir, 'extensions', ['schema.name', 'schema.type'])
-    # export_dir(api.export_roles(), out_dir, 'roles')
+    policies = [
+        {key: value for key, value in item.items() if key not in ['users', 'roles']}
+        for item in api.export_policies()
+        if not item.get('admin_access')
+    ]
+    policy_ids = {str(item['id']) for item in policies}
+    export_dir(policies, out_dir, 'policies', ['name', 'id'])
+    export_dir([
+        {key: value for key, value in item.items() if key not in ['users', 'children']}
+        for item in api.export_roles()
+        if set(map(str, item.get('policies', []))).issubset(policy_ids)
+    ], out_dir, 'roles', ['name', 'id'])
     export_dir([
         d for d in api.export_permissions()
         if d.get('system') is not True and 'id' in d
-    ], out_dir, 'permissions', keys=['role', 'action', 'collection', 'id'])
+        and str(d.get('policy')) in policy_ids
+    ], out_dir, 'permissions', keys=['policy', 'action', 'collection', 'id'])
 
 
 QUESTIONS = [

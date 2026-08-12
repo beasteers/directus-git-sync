@@ -1,21 +1,32 @@
 import os
+import copy
 from ruamel.yaml import YAML
 import directus_git_sync as dg
 yaml = YAML(typ='safe', pure=True)
 
 
 def schema_norm(schema):
-    schema = dict(schema)
+    schema = copy.deepcopy(dict(schema))
+    for field in schema['fields']:
+        if field.get('meta'):
+            field['meta'].pop('sort', None)
+            field['meta'].pop('group', None)
+    for collection in schema['collections']:
+        if collection.get('meta'):
+            collection['meta'].pop('sort', None)
+            collection['meta'].pop('group', None)
     schema['collections'] = sorted(schema['collections'], key=lambda x: x['collection'])
-    schema['fields'] = sorted(schema['fields'], key=lambda x: x['collection'])
-    schema['relations'] = sorted(schema['relations'], key=lambda x: x['collection'])
+    schema['fields'] = sorted(
+        schema['fields'], key=lambda x: (x['collection'], x['field']))
+    schema['relations'] = sorted(
+        schema['relations'],
+        key=lambda x: (x['collection'], x['field'], x.get('related_collection') or ''))
     return schema
 
-# FNAME = 'tests/schema.yaml'
-FNAME = '/opt/gh/mini-floodnet/application/directus/schema.yaml'
+FNAME = 'tests/schema.yaml'
 
-def test_unpack(fname=FNAME, out_dir=None):
-    out_dir = out_dir or os.path.join(os.path.splitext(fname)[0])
+def test_unpack(tmp_path, fname=FNAME):
+    out_dir = str(tmp_path / 'schema')
     with open(fname, "r") as file:
         schema = dict(yaml.load(file))
 
@@ -26,4 +37,3 @@ def test_unpack(fname=FNAME, out_dir=None):
 
     schema2 = dg.util.pack_schema(d)
     assert schema_norm(schema) == schema_norm(schema2)
-

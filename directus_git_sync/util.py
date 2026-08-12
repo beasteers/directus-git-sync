@@ -538,6 +538,8 @@ def pack_schema(output):
             fields.append(field)
 
         relations.extend(data['relations'])
+    fields.extend(misc.get('fields', []))
+    relations.extend(misc.get('relations', []))
     return {'collections': collections, 'relations': relations, 'fields': fields, **meta}
 
 
