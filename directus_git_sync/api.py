@@ -587,15 +587,19 @@ class API:
 def sanitize_schema_null_collections(schema):
     dropped_collections = [c for c in schema['collections'] if c.get('meta', {}) is None]
     dropped_collection_names = [c['collection'] for c in dropped_collections]
-    dropped_relations = [c for c in schema['relations'] if c['collection'] in dropped_collection_names]
-    
     schema['collections'] = [c for c in schema['collections'] if c.get('meta', {}) is not None]
-    schema['relations'] = [c for c in schema['relations'] if c['collection'] not in dropped_collection_names]
+    managed_collection_names = {c['collection'] for c in schema['collections']}
+    dropped_relations = [c for c in schema['relations'] if c['collection'] not in managed_collection_names]
+    dropped_fields = [c for c in schema['fields'] if c['collection'] not in managed_collection_names]
+    schema['relations'] = [c for c in schema['relations'] if c['collection'] in managed_collection_names]
+    schema['fields'] = [c for c in schema['fields'] if c['collection'] in managed_collection_names]
     
     # if dropped_collections:
     #     print('Ignoring collections:', [c['collection'] for c in dropped_collections])
     # if dropped_relations:
     #     print('Ignoring relations:', [f'{c["collection"]}.{c.get("field")}' for c in dropped_relations])
+    # if dropped_fields:
+    #     print('Ignoring fields:', [f'{c["collection"]}.{c.get("field")}' for c in dropped_fields])
     
     return schema
 
