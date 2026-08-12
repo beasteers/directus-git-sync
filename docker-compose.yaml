@@ -54,8 +54,3 @@ services:
       DIRECTUS_EMAIL: admin@admin.com
       DIRECTUS_PASSWORD: admin
       DIRECTUS_OUT_DIR: /git/floodnet-directus
-      # DIRECTUS_URL: https://directus.dep.floodlabs.nyc
-      # DIRECTUS_EMAIL: REDACTED
-      # DIRECTUS_PASSWORD: REDACTED
-      # DIRECTUS_OUT_DIR: /git/floodnet-directus
-      
