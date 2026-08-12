@@ -109,3 +109,25 @@ def test_build_plan_covers_managed_resources_without_deleting_system_state(tmp_p
     assert result['destructive'] is False
     assert result['has_changes'] is True
     json.dumps(result)
+
+
+def test_empty_directus_schema_diff_is_not_a_change(tmp_path):
+    snapshot(tmp_path)
+    api = FakeAPI()
+    api.diff_unpacked_schema = lambda schema, force=False: {
+        'hash': 'unchanged',
+        'diff': {'collections': [], 'fields': [], 'relations': []},
+    }
+    api.export_settings = lambda: {'id': 2, 'project_name': 'FloodNet'}
+    api.json = lambda method, route: {'data': {
+        '/policies': [{'id': 'p1', 'name': 'Engineer', 'admin_access': False,
+                       'app_access': True, 'roles': [], 'users': []}],
+        '/roles': [{'id': 'r1', 'name': 'Engineer', 'policies': ['p1'],
+                    'children': [], 'users': []}],
+        '/permissions': [{'id': 1, 'policy': 'p1', 'action': 'read',
+                          'collection': 'sensors'}],
+        '/flows': [], '/operations': [], '/dashboards': [], '/panels': [],
+        '/presets': [], '/webhooks': [],
+    }[route]}
+
+    assert build_plan(api, tmp_path)['has_changes'] is False

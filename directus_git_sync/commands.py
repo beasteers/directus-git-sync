@@ -74,6 +74,13 @@ def _contains_delete(value):
     return False
 
 
+def _schema_has_changes(schema):
+    if not schema:
+        return False
+    diff = schema.get('diff') or {}
+    return any(diff.get(name) for name in ('collections', 'fields', 'relations'))
+
+
 def build_plan(api, src_dir=EXPORT_DIR, force=False):
     """Return a complete, non-mutating application-state plan."""
     desired = _load_configuration(src_dir)
@@ -131,7 +138,7 @@ def build_plan(api, src_dir=EXPORT_DIR, force=False):
         != item.get('schema', {}).get('version'))
     destructive = _contains_delete(schema) or any(
         changes['delete'] for changes in resources.values())
-    has_changes = bool(schema or settings or extensions_missing) or any(
+    has_changes = bool(_schema_has_changes(schema) or settings or extensions_missing) or any(
         any(changes.values()) for changes in resources.values())
     return {
         'schema': schema,
