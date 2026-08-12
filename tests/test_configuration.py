@@ -6,6 +6,7 @@ import yaml
 
 from directus_git_sync.api import API
 from directus_git_sync.commands import _load_configuration, build_plan
+from directus_git_sync.util import export_dir
 
 
 def dump(path, value):
@@ -72,6 +73,18 @@ def test_diff_items_is_non_mutating_and_ignores_runtime_bindings():
         }
     assert desired[0]['users'] == []
     assert current[0]['users'] == ['runtime-user']
+
+
+def test_export_dir_renames_existing_object_by_id(tmp_path):
+    directory = tmp_path / 'permissions'
+    dump(directory / 'None-read-sensors-1.yaml', {
+        'id': 1, 'policy': 'p1', 'action': 'read', 'collection': 'sensors',
+    })
+    export_dir([{
+        'id': 1, 'policy': 'p1', 'action': 'read', 'collection': 'sensors',
+    }], tmp_path, 'permissions', ['policy', 'action', 'collection', 'id'])
+    assert not (directory / 'None-read-sensors-1.yaml').exists()
+    assert (directory / 'p1-read-sensors-1.yaml').exists()
 
 
 def test_load_configuration_rejects_missing_policy(tmp_path):

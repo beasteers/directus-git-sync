@@ -129,7 +129,9 @@ class API:
 
     def apply_policies(self, items, **kw):
         """Update access policies without carrying environment user bindings."""
-        return self._apply('/policies', items, forbidden_keys=['users', 'roles'], **kw)
+        return self._apply(
+            '/policies', items,
+            forbidden_keys=['users', 'roles', 'permissions'], **kw)
 
     # ---------------------------------- Folders --------------------------------- #
 

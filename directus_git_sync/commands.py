@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 
 
 RESOURCE_CONFIG = {
-    'policies': {'forbidden_keys': ['users', 'roles']},
+    'policies': {'forbidden_keys': ['users', 'roles', 'permissions']},
     'roles': {'forbidden_keys': ['users', 'children']},
     'permissions': {},
     'flows': {'forbidden_keys': ['operations']},
@@ -93,7 +93,10 @@ def build_plan(api, src_dir=EXPORT_DIR, force=False):
     def managed_actual(name):
         items = api.json('GET', f'/{name}')['data']
         if name == 'policies':
-            return [item for item in items if not item.get('admin_access')]
+            return [
+                item for item in items
+                if not item.get('admin_access') and item.get('name') != '$t:public_label'
+            ]
         if name == 'roles':
             return [
                 item for item in items
@@ -227,9 +230,12 @@ def export(email=EMAIL, password=PASSWORD, url=URL, out_dir=EXPORT_DIR):
     ], out_dir, 'presets', ['bookmark', 'collection', 'id'])
     export_dir(api.export_extensions(), out_dir, 'extensions', ['schema.name', 'schema.type'])
     policies = [
-        {key: value for key, value in item.items() if key not in ['users', 'roles']}
+        {
+            key: value for key, value in item.items()
+            if key not in ['users', 'roles', 'permissions']
+        }
         for item in api.export_policies()
-        if not item.get('admin_access')
+        if not item.get('admin_access') and item.get('name') != '$t:public_label'
     ]
     policy_ids = {str(item['id']) for item in policies}
     export_dir(policies, out_dir, 'policies', ['name', 'id'])

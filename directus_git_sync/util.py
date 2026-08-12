@@ -45,7 +45,7 @@ def _export_key(data, keys):
 
 
 def export_dir(data, out_dir, name=None, keys=['name', 'id'], ext='yaml'):
-    counts = {'unchanged': 0, 'modified': 0, 'new': 0, 'deleted': 0}
+    counts = {'unchanged': 0, 'modified': 0, 'renamed': 0, 'new': 0, 'deleted': 0}
     if name is None:
         name = out_dir.rsplit(os.sep, 1)[-1]
     else:
@@ -59,7 +59,24 @@ def export_dir(data, out_dir, name=None, keys=['name', 'id'], ext='yaml'):
             for i, d in enumerate(data)
         }
 
+    # Object IDs are stable while human-readable filename keys can evolve. If
+    # an existing file has the same ID, move it before comparing content. This
+    # turns key-format migrations into reviewable renames instead of a wall of
+    # misleading delete/create output.
+    existing_by_id = {}
+    for name_i in existing:
+        item = load_data(get_fname(out_dir, name_i, ext))
+        if isinstance(item, dict) and item.get('id') is not None:
+            existing_by_id[str(item['id'])] = name_i
+
     for k, d in data.items():
+        identity = str(d.get('id')) if isinstance(d, dict) and d.get('id') is not None else None
+        old_key = existing_by_id.get(identity)
+        if k not in existing and old_key and old_key != k:
+            os.replace(get_fname(out_dir, old_key, ext), get_fname(out_dir, k, ext))
+            existing.remove(old_key)
+            existing.add(k)
+            counts['renamed'] += 1
         state = _export_one(d, out_dir, k, ext)
         counts[state] += 1
 
@@ -72,10 +89,10 @@ def export_dir(data, out_dir, name=None, keys=['name', 'id'], ext='yaml'):
         log.info("%-11s :: 🫥  none.", name.title())
     else:
         log.info(
-            "%-11s :: %s. %s. %s. %s.", 
+            "%-11s :: %s. %s. %s. %s. %s.",
             name.title(), *(
                 status_text(k, i=counts[k]) 
-                for k in ['new', 'modified', 'deleted', 'unchanged']
+                for k in ['new', 'modified', 'renamed', 'deleted', 'unchanged']
             ),
         )
 
@@ -579,8 +596,8 @@ class C:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
-COLORS = {'new': C.CYAN, 'modified': C.YELLOW, 'deleted': C.RED, 'unchanged': C.GREEN, 'none': C.BLUE}
-ICONS = {'new': '🌱', 'modified': '🔧', 'deleted': '🗑 ', 'unchanged': '🌲', 'none': '🫥'}
+COLORS = {'new': C.CYAN, 'modified': C.YELLOW, 'renamed': C.BLUE, 'deleted': C.RED, 'unchanged': C.GREEN, 'none': C.BLUE}
+ICONS = {'new': '🌱', 'modified': '🔧', 'renamed': '↪', 'deleted': '🗑 ', 'unchanged': '🌲', 'none': '🫥'}
 
 
 def color_text(color, x, i=True):
