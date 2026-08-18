@@ -56,9 +56,13 @@ def min_topological_sort(graph, flat=True):
                     next_set.add(neighbor)
 
         current_set = next_set
-    
-    missing = set(x for xs in sets for x in xs) - set(graph)
-    assert not missing, missing
+
+    processed = set(x for xs in sets for x in xs)
+    remaining = set(graph) - processed
+    if remaining:
+        raise ValueError(
+            'cyclic dependencies detected among nodes: '
+            + ', '.join(sorted(map(str, remaining))))
     if flat:
         sets = [x for xs in sets for x in xs]
     return sets

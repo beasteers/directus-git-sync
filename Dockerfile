@@ -1,5 +1,5 @@
-FROM registry.k8s.io/git-sync/git-sync:v4.0.0 AS build
-FROM python:3.11.0-alpine
+FROM registry.k8s.io/git-sync/git-sync:v4.3.2 AS build
+FROM python:3.12-alpine
 COPY --from=build /git-sync /
 
 RUN apk add --no-cache git openssh

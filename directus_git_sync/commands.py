@@ -271,8 +271,7 @@ def wipe(email, password, url=URL):
         if input(f'{q} y/[n]: ').strip().lower() != 'y':
             log.info("Okie! probably for the best.")
             return
-    else:
-        log.warning("Okay let's destroy everything!")
+    log.warning("Okay let's destroy everything!")
 
     log.info(f"Importing Directus schema and flows to {url}")
 
@@ -296,7 +295,7 @@ def wipe(email, password, url=URL):
 DROP_FIELDS = ['user_created', 'user_updated']
 
 def data(*collections, email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.join(EXPORT_DIR, 'data'), drop_fields=DROP_FIELDS, only=None, force: 'bool'=False):
-    """Apply Directus schema, flows, websockets, dashboards, and roles to a Directus instance."""
+    """Export Directus collection items to disk (for git-tracked data migrations)."""
     import tqdm
 
     assert url and email and password, "missing url and/or credentials"
@@ -328,7 +327,7 @@ def data(*collections, email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.
 
 
 def seed(email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.join(EXPORT_DIR, 'data'), only=None, force: 'bool'=False):
-    """Apply Directus schema, flows, websockets, dashboards, and roles to a Directus instance."""
+    """Import Directus data from disk, ordered by foreign-key dependencies."""
 
     def get_schema_topo(fields):
         fields = [f for f in fields if f.get('schema')]
@@ -342,19 +341,40 @@ def seed(email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.join(EXPORT_DI
     def get_collection_graph(data, topo):
         graph = {}
         graph_data = {}
+        # index referenced columns so foreign keys can resolve to the correct
+        # primary key even when they reference a non-primary-key column.
+        referenced = {
+            (f_table, f_col)
+            for collection in data
+            for f_table, f_col in topo[collection][1].values()
+        }
+        lookup = {}
+        for collection, rows in data.items():
+            pkey = topo[collection][0]
+            if pkey is None:
+                continue
+            for f_table, f_col in referenced:
+                if f_table != collection:
+                    continue
+                col_map = lookup.setdefault((collection, f_col), {})
+                for row in rows:
+                    value = row.get(f_col)
+                    if value is not None:
+                        col_map.setdefault(value, set()).add(row.get(pkey))
         for collection, rows in data.items():
             pkey, relations = topo[collection]
             if pkey is None:
                 continue
             for row in rows:
-                # FIXME: right now we are ignoring the foreign key column and assuming it's the primary key
-                #        otherwise we would need to have multiple indexes??
                 k = (collection, row[pkey])
-                graph[k] = {
-                    (f_table, row[col])
-                    for col, (f_table, f_col) in relations.items()
-                    if row.get(col) is not None
-                }
+                edges = set()
+                for col, (f_table, f_col) in relations.items():
+                    value = row.get(col)
+                    if value is None:
+                        continue
+                    for target_pkey in lookup.get((f_table, f_col), {}).get(value, ()):
+                        edges.add((f_table, target_pkey))
+                graph[k] = edges
                 graph_data[k] = row
         return graph, graph_data
 
@@ -390,9 +410,8 @@ def seed(email=EMAIL, password=PASSWORD, url=URL, out_dir=os.path.join(EXPORT_DI
             except requests.exceptions.HTTPError as e:
                 log.info('updated %s: %s', gkey, api.update_item(collection, key, graph_data[gkey]))
 
-# import ipdb
-# @ipdb.iex
-def main(key=None):
+
+def main():
     logging.basicConfig()
     import fire
     fire.Fire({

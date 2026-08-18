@@ -1,5 +1,3 @@
-import io
-import json
 import requests
 import logging
 from . import URL, EMAIL, PASSWORD
@@ -33,7 +31,8 @@ class API:
 
     def json(self, method, path, raw=False, **kw):
         log.debug(f'🐦 ↑{method} {path} %s', kw)
-        r = requests.request(method, f"{self.url}{path}", headers={**self.headers, **(kw.get('headers') or {})}, **kw)
+        headers = {**self.headers, **kw.pop('headers', {})}
+        r = requests.request(method, f"{self.url}{path}", headers=headers, **kw)
         log.debug(f'{"🟢" if r.ok else "🔴"} ↓{method} {path} {r.status_code} {r.content}')
         try:
             r.raise_for_status()
@@ -56,7 +55,7 @@ class API:
     def apply_settings(self, settings, **kw):
         """Update server settings."""
         current = self.export_settings()
-        if settings == current:
+        if {key: current.get(key) for key in settings} == settings:
             log.info("%-11s :: %s.", 'Settings', status_text('unchanged'))
             return
         log.info("%-11s :: %s.", 'Settings', status_text('modified'))
@@ -228,22 +227,16 @@ class API:
         """Get all extensions"""
         data = self.json('GET', '/extensions')['data']
 
-        # for d in data:
-        #     d['meta'] = {'enabled': d['meta']['enabled']}
-
         bundles = {}
         for d in data:
-            bundle = d.pop('bundle', None)
+            bundle = d.get('bundle')
             bundles.setdefault(bundle, []).append(d)
 
-        top = bundles.get(None, [])
-        # for d in top:
-        #     if d['id'] in bundles:
-        #         d['bundle_extensions'] = bundles[d['id']]
-        # for k in set(bundles) - {None} - set(d['id'] for d in top):
-        #     top.append({'id': k, 'bundle_extensions': bundles[k]})
-
-        return top
+        result = list(bundles.get(None, []))
+        for bundle_id, members in bundles.items():
+            if bundle_id is not None:
+                result.extend(members)
+        return result
     
     def apply_extensions(self, items, **kw):
         """Update server with extensions configurations."""
@@ -338,14 +331,36 @@ class API:
     def _apply(self, route, items, existing=None, forbidden_keys=None, allow_delete=True, desc_keys=None, NEW='POST', UPDATE='PATCH', DELETE='DELETE'):
         if existing is None:
             existing = self.json('GET', route)['data']
-        existing = {d['id']: d for d in existing if 'id' in d}
-        items = {d['id']: d for d in items}
+        existing = {d['id']: dict(d) for d in existing if 'id' in d}
+        protected_role_ids = {
+            item['id']
+            for item in existing.values()
+            if '/roles' in route
+            and (
+                item.get('admin_access') is not False
+                or item.get('system')
+                or item.get('users')
+            )
+        }
+        protected_policy_ids = {
+            item['id']
+            for item in existing.values()
+            if '/policies' in route
+            and (
+                item.get('admin_access') is not False
+                or item.get('name') == '$t:public_label'
+                or item.get('system')
+                or item.get('roles')
+                or item.get('users')
+            )
+        }
+        items = {d['id']: dict(d) for d in items}
         log.debug(f'items {route} {set(items)}')
         log.debug(f'existing {route} {set(existing)}')
 
         for d in [items, existing]:
             for k in d:
-                for ki in ['user_created']:  # XXX: is this desired? it's needed when copying between instances but we're losing this information
+                for ki in ['user_created', 'user_updated']:  # XXX: is this desired? it's needed when copying between instances but we're losing this information
                     d[k].pop(ki, None)
                 for ki in (forbidden_keys or []):
                         d[k].pop(ki, None)
@@ -403,7 +418,20 @@ class API:
         log.debug(f'missing {route} {missing}')
         log.debug(f'delete {route} {delete}')
         if '/roles' in route:  # FIXME: this is janky
-            delete = [k for k in delete if existing[k].get('admin_access') != True]
+            # Directus 11 reports the built-in Administrator role with
+            # ``admin_access: null``. Never remove protected roles, roles
+            # still assigned to users, or system roles during reconciliation.
+            delete = [
+                k for k in delete
+                if k not in protected_role_ids
+                and existing[k].get('admin_access') is False
+            ]
+        if '/policies' in route:
+            delete = [
+                k for k in delete
+                if k not in protected_policy_ids
+                and existing[k].get('admin_access') is False
+            ]
         if delete and DELETE:
             delete_fn = (lambda ks, ds: self.json(DELETE, route, json=list(ks))) if not callable(DELETE) else DELETE
             log.warning(f"🗑 Deleting {route}: {delete}")
@@ -468,6 +496,7 @@ class API:
 
     def iter_items(self, collection, batch=100, limit=None, search=None):
         offset = 0
+        remaining = limit
         while True:
             items = self.json(
                 'SEARCH' if search else 'GET', 
@@ -475,13 +504,17 @@ class API:
                 params={'limit': batch, 'offset': offset},
                 json=search)
             items = items['data']
-            offset += len(items)
-            if limit and offset >= limit:
-                yield items[:limit - offset or None]
-                return
             if not items:
                 break
-            yield items
+            if remaining is not None:
+                items = items[:remaining]
+                remaining -= len(items)
+                yield items
+                if remaining <= 0:
+                    break
+            else:
+                yield items
+            offset += len(items)
 
     def create_items(self, collection, data):
         return self.json('POST', f'/items/{collection}', json=data)
@@ -497,91 +530,6 @@ class API:
 
     def delete_items(self, collection, ids):
         return self.json('DELETE', f'/items/{collection}', json=ids)
-    
-    def import_data(self, collection, fname):
-
-        fields = self.json('GET', f'/fields/{collection}')['data']
-        field = [x for x in fields if (x.get('schema') or {}).get('is_primary_key')]
-        primary_key = field[0]['field']
-
-        with open(fname, 'r') as f:
-            data = json.load(f)
-        graph = {d[primary_key]: d for d in data}
-        new_graph = create_graph_from_items(graph, "id")
-        keys = min_topological_sort(new_graph, flat=True)
-        data = [graph[k] for k in keys]
-
-        return self.json('POST', f'/items/{collection}')
-
-        # ext = fname.split('.')[-1]
-        # mime = ({'json': 'application/json', 'csv': 'text/csv'})[ext.lower()]
-        # return self.json('POST', f'/utils/import/{collection}', files={
-        #     'file': (f'{collection}.{ext}', io.StringIO(json.dumps(data)), mime)
-        # })
-    
-    # def import_data(self, collection, data):
-    #     return self.json('POST', f'/utils/import/{collection}', files={
-    #         'file': (f'{collection}.json', io.StringIO(json.dumps(data)), "application/json")
-    #     })
-    
-    # def import_csv(self, collection, data_str):
-    #     return self.json('POST', f'/utils/import/{collection}', files={
-    #         'file': (f'{collection}.csv', io.StringIO(data_str), "text/csv")
-    #     })
-    
-    async def data_sync(self, collections):
-        import uuid
-        import websockets
-        import json
-        while True:
-            try:
-                async with websockets.connect(self.url) as websocket:
-                    # Authenticate
-                    log.info("Authenticating...")
-                    await websocket.send(json.dumps({
-                        "type": "auth",
-                        "access_token": self.access_token
-                    }))
-                    log.info("Authenticated!")
-
-                    # Subscribe to collections
-                    uuids = {
-                        str(uuid.uuid4()): c
-                        for c in collections
-                    }
-                    for uid, collection in uuids.items():
-                        log.info("Subscribing to %s (%s)", collection, uid)
-                        await websocket.send(json.dumps({
-                            "type": "subscribe",
-                            "collection": collection,
-                            "uid": uid,
-                        }))
-                    
-
-                    # Listen for incoming messages
-                    # {
-                    #     "type": "subscription",
-                    #     "event": "create",
-                    #     "data": [ ... ]
-                    # }
-                    async for message in websocket:
-                        data = json.loads(message)
-                        event = message.get('event')
-                        if event == 'init':
-                            log.info("Subscription init: %s", message)
-                            continue
-                        
-                        collection = uuids[message['uid']]
-                        if event == 'create':
-                            self.create_items(collection, data['data'])
-                        elif event == 'update':
-                            self.update_items(collection, data['data'])
-                        elif event == 'delete':
-                            self.delete_items(collection, [d['id'] for d in data['data']])
-
-                        print({"event": "onmessage", "data": data})
-            except Exception as e:
-                log.exception(e)
 
 
 def sanitize_schema_null_collections(schema):
@@ -616,6 +564,3 @@ def sanitize_diff_null_collections(diff):
     diff['diff']['relations'] = [c for c in diff['diff']['relations'] if c['collection'] not in ignored_collections]
     diff['diff']['fields'] = [c for c in diff['diff']['fields'] if c['collection'] not in ignored_collections]
     return diff
-
-# if __name__ == "__main__":
-#     asyncio.get_event_loop().run_until_complete(main())

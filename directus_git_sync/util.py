@@ -213,7 +213,7 @@ def load_data(file_path):
             return yaml.safe_load(yaml_file)
     elif file_extension in ['txt']:
         log.debug(f"📖 Reading text {file_path}")
-        with open(file_path, 'w') as f:
+        with open(file_path, 'r') as f:
             return f.read()
     else:
         raise ValueError("Unsupported file format. Supported formats: csv, json, yaml/yml")
